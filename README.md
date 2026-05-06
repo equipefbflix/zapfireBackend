@@ -1,0 +1,45 @@
+# Aquecedor Evolution Backend
+
+Backend em Go para orquestrar instancias Evolution API, conversas de aquecimento entre numeros WhatsApp, execucoes agendadas, regras de score e redundancia entre multiplas Evolution APIs.
+
+Status atual: documentacao tecnica inicial com fundacoes RabbitMQ, HTTP/Evolution, Supabase e repositories base implementadas. O schema do aquecedor foi aplicado no projeto Supabase correto `rxdophybnwoocsdyxyjm`.
+
+## Documentacao
+
+- [Visao geral](docs/01-overview.md)
+- [Evolution API](docs/02-evolution-api.md)
+- [Supabase e schema](docs/03-supabase-schema.md)
+- [Contrato REST do backend](docs/04-backend-api.md)
+- [Variaveis de ambiente](docs/05-env.md)
+- [Crons e orquestracao](docs/06-scheduler.md)
+- [Bloqueios e proximos passos](docs/07-open-items.md)
+- [Plano de execucao TDD](docs/08-execution-plan.md)
+- [Filas RabbitMQ](docs/09-rabbitmq-queues.md)
+- [Fundacao HTTP e Evolution](docs/10-http-evolution-foundation.md)
+- [Fundacao Supabase](docs/11-supabase-foundation.md)
+- [Repositories Supabase](docs/12-supabase-repositories.md)
+- [Criacao de instancia](docs/13-instance-creation.md)
+- [Plano de acao](docs/14-action-plan.md)
+- [Rotas de numeros](docs/15-phone-number-routes.md)
+- [Rotas de proxies](docs/16-proxy-routes.md)
+- [Rotas de Evolution servers](docs/17-evolution-server-routes.md)
+- [Rotas de message templates](docs/18-message-template-routes.md)
+- [Rotas de conversation scripts](docs/19-conversation-script-routes.md)
+- [Rotas de warming jobs](docs/20-warming-job-routes.md)
+- [Rotas de execution logs](docs/21-execution-log-routes.md)
+- [Webhook Evolution](docs/22-evolution-webhook.md)
+- [Supabase Auth no backend](docs/52-supabase-auth-backend.md)
+- [Scheduler de warming jobs](docs/23-warming-job-scheduler.md)
+- [Worker de warming jobs](docs/24-warming-job-worker.md)
+- [Executor de steps](docs/25-step-executor.md)
+- [Teste integrado de fluxo minimo](docs/26-real-flow-integration.md)
+- [Runner de warming jobs](docs/27-warming-job-runner.md)
+- [Idempotencia por step](docs/28-step-idempotency.md)
+- [Adapter consumidor RabbitMQ](docs/29-rabbitmq-consumer-adapter.md)
+- [Action send_reply](docs/30-step-send-reply.md)
+- [Actions send_media e send_sticker](docs/31-step-send-media-sticker.md)
+- [Worker ligado ao runner](docs/32-worker-runner-bridge.md)
+- [Processo cmd/worker](docs/33-worker-process.md)
+- [Executor por instancia](docs/34-instance-executor-factory.md)
+- [E2E local do worker](docs/35-worker-local-e2e.md)
+- [Operacao local do loop reativo](docs/51-local-reactive-operations.md)

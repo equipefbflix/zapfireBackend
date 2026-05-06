@@ -1,0 +1,97 @@
+package httpserver
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"aquecedor-evolution/backend/internal/repository"
+)
+
+type fakePhoneNumberStore struct {
+	createParams repository.CreatePhoneNumberParams
+	items        []repository.PhoneNumber
+}
+
+func (s *fakePhoneNumberStore) Create(ctx context.Context, params repository.CreatePhoneNumberParams) (repository.PhoneNumber, error) {
+	s.createParams = params
+	return repository.PhoneNumber{
+		ID:           "phone-id",
+		PhoneE164:    params.PhoneE164,
+		Label:        params.Label,
+		Status:       "new",
+		WarmingScore: 0,
+		Metadata:     params.Metadata,
+	}, nil
+}
+
+func (s *fakePhoneNumberStore) List(ctx context.Context) ([]repository.PhoneNumber, error) {
+	return s.items, nil
+}
+
+func TestCreatePhoneNumberRoute(t *testing.T) {
+	store := &fakePhoneNumberStore{}
+	server := NewServer(ServerConfig{PhoneNumbers: store})
+	body := []byte(`{
+		"phoneE164": "5511999999999",
+		"label": "chip-sp-01",
+		"testRunId": "test-run",
+		"metadata": {"carrier":"vivo"}
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/phone-numbers", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if store.createParams.Metadata["testRunId"] != "test-run" {
+		t.Fatalf("testRunId = %v", store.createParams.Metadata["testRunId"])
+	}
+
+	var response phoneNumberResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if response.ID != "phone-id" {
+		t.Fatalf("ID = %q", response.ID)
+	}
+}
+
+func TestCreatePhoneNumberRouteRequiresPhone(t *testing.T) {
+	server := NewServer(ServerConfig{PhoneNumbers: &fakePhoneNumberStore{}})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/phone-numbers", bytes.NewReader([]byte(`{"label":"missing"}`)))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestListPhoneNumbersRoute(t *testing.T) {
+	server := NewServer(ServerConfig{PhoneNumbers: &fakePhoneNumberStore{items: []repository.PhoneNumber{
+		{ID: "phone-id", PhoneE164: "5511999999999", Label: "chip", Status: "new", Metadata: map[string]any{}},
+	}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/phone-numbers", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	var response listPhoneNumbersResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(response.Items) != 1 {
+		t.Fatalf("items len = %d", len(response.Items))
+	}
+}
