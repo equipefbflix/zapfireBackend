@@ -34,6 +34,10 @@ func (c *fakeInstanceCreator) Create(ctx context.Context, params instance.Create
 	}, nil
 }
 
+func (c *fakeInstanceCreator) Restart(ctx context.Context, phoneNumberID string) error {
+	return c.err
+}
+
 func TestCreateInstanceRoute(t *testing.T) {
 	creator := &fakeInstanceCreator{}
 	server := NewServer(ServerConfig{

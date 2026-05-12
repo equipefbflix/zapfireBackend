@@ -1,0 +1,27 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": "d-17371142738",
+      "username": "user1",
+      "password": "pass1",
+      "proxy_address": "1.2.3.4",
+      "port": 8080,
+      "valid": true,
+      "country_code": "BR",
+      "city_name": "Rio De Janeiro"
+    },
+    {
+      "id": "d-17371142740",
+      "username": "user2",
+      "password": "pass2",
+      "proxy_address": "5.6.7.8",
+      "port": 5421,
+      "valid": false,
+      "country_code": "BR",
+      "city_name": "Fortaleza"
+    }
+  ]
+}

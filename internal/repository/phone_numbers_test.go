@@ -92,3 +92,54 @@ func TestPhoneNumberRepositoryUpdateWarmingState(t *testing.T) {
 		t.Fatalf("sql = %s", db.lastSQL)
 	}
 }
+
+func TestPhoneNumberRepositoryUpdate(t *testing.T) {
+	db := &fakeExecutor{
+		row: fakeRow{values: []any{
+			"phone-id",
+			"5511999999999",
+			"updated label",
+			"active",
+			10.5,
+			[]byte(`{"updated":true}`),
+		}},
+	}
+	repo := NewPhoneNumberRepository(db)
+
+	phone, err := repo.Update(context.Background(), "phone-id", UpdatePhoneNumberParams{
+		Label:  stringPointer("updated label"),
+		Status: stringPointer("active"),
+		Metadata: map[string]any{
+			"updated": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	if phone.Label != "updated label" {
+		t.Fatalf("Label = %q", phone.Label)
+	}
+	if phone.Status != "active" {
+		t.Fatalf("Status = %q", phone.Status)
+	}
+	if !strings.Contains(db.lastSQL, "update public.phone_numbers") {
+		t.Fatalf("sql = %s", db.lastSQL)
+	}
+}
+
+func TestPhoneNumberRepositoryDelete(t *testing.T) {
+	db := &fakeExecutor{commandTag: CommandTag{RowsAffected: 1}}
+	repo := NewPhoneNumberRepository(db)
+
+	if err := repo.Delete(context.Background(), "phone-id"); err != nil {
+		t.Fatalf("Delete() error = %v", err)
+	}
+	if !strings.Contains(db.lastSQL, "delete from public.phone_numbers") {
+		t.Fatalf("sql = %s", db.lastSQL)
+	}
+}
+
+func stringPointer(s string) *string {
+	return &s
+}

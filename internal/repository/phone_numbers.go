@@ -21,6 +21,12 @@ type CreatePhoneNumberParams struct {
 	Metadata  map[string]any
 }
 
+type UpdatePhoneNumberParams struct {
+	Label    *string
+	Status   *string
+	Metadata map[string]any
+}
+
 type PhoneWarmingMetrics struct {
 	SuccessTextCount     int
 	SuccessReplyCount    int
@@ -136,6 +142,40 @@ where id = $1
 `, id, score, status)
 	if err != nil {
 		return fmt.Errorf("update phone warming state: %w", err)
+	}
+	return nil
+}
+
+func (r PhoneNumberRepository) Update(ctx context.Context, id string, params UpdatePhoneNumberParams) (PhoneNumber, error) {
+	metadata, err := encodeMetadata(params.Metadata)
+	if err != nil {
+		return PhoneNumber{}, err
+	}
+
+	row := r.db.QueryRow(ctx, `
+update public.phone_numbers
+set label = coalesce($2, label),
+    status = coalesce($3::public.phone_status, status),
+    metadata = coalesce($4::jsonb, metadata),
+    updated_at = now()
+where id = $1
+returning id::text, phone_e164, coalesce(label, ''), status::text, warming_score::float8, metadata::text::bytea
+`, id, params.Label, params.Status, metadata)
+
+	phone, err := scanPhoneNumber(row)
+	if err != nil {
+		return PhoneNumber{}, fmt.Errorf("update phone number: %w", err)
+	}
+	return phone, nil
+}
+
+func (r PhoneNumberRepository) Delete(ctx context.Context, id string) error {
+	_, err := r.db.Exec(ctx, `
+delete from public.phone_numbers
+where id = $1
+`, id)
+	if err != nil {
+		return fmt.Errorf("delete phone number: %w", err)
 	}
 	return nil
 }

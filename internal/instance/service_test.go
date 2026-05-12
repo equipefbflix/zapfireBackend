@@ -16,6 +16,15 @@ func (s fakeEvolutionServerStore) ListEnabled(ctx context.Context) ([]repository
 	return s.servers, nil
 }
 
+func (s fakeEvolutionServerStore) GetByID(ctx context.Context, id string) (repository.EvolutionServer, error) {
+	for _, srv := range s.servers {
+		if srv.ID == id {
+			return srv, nil
+		}
+	}
+	return repository.EvolutionServer{}, nil
+}
+
 type fakeProxyStore struct {
 	proxies []repository.Proxy
 }
@@ -41,6 +50,16 @@ func (s *fakeInstanceStore) Create(ctx context.Context, params repository.Create
 	}, nil
 }
 
+func (s *fakeInstanceStore) GetOpenByPhoneNumberID(ctx context.Context, phoneNumberID string) (repository.Instance, error) {
+	return repository.Instance{
+		ID:                "instance-id",
+		PhoneNumberID:     phoneNumberID,
+		EvolutionServerID: "server-id",
+		InstanceName:      "instance-name",
+		Status:            "open",
+	}, nil
+}
+
 type fakeEvolutionCreator struct {
 	request evolution.CreateInstanceRequest
 }
@@ -51,6 +70,10 @@ func (c *fakeEvolutionCreator) CreateInstance(ctx context.Context, request evolu
 	response.Instance.InstanceName = request.InstanceName
 	response.Hash.APIKey = "instance-api-key"
 	return response, nil
+}
+
+func (c *fakeEvolutionCreator) RestartInstance(ctx context.Context, instanceName string) error {
+	return nil
 }
 
 type fakeEvolutionFactory struct {
@@ -126,6 +149,39 @@ func TestServiceCreateWithProxy(t *testing.T) {
 	}
 	if instanceStore.params.Metadata["testRunId"] != "test-run" {
 		t.Fatalf("testRunId = %v", instanceStore.params.Metadata["testRunId"])
+	}
+}
+
+func TestServiceCreateWithLiteralProxyPassword(t *testing.T) {
+	proxyID := "proxy-id"
+	username := "proxy-user"
+	passwordSecret := "literal:proxy-secret"
+	instanceStore := &fakeInstanceStore{}
+	creator := &fakeEvolutionCreator{}
+	service := NewService(ServiceConfig{
+		EvolutionServers: fakeEvolutionServerStore{servers: []repository.EvolutionServer{
+			{ID: "server-id", Name: "evo1", BaseURL: "https://evo.example.com", APIKeySecretName: "EVOLUTION_API_KEY", Enabled: true},
+		}},
+		Proxies: fakeProxyStore{proxies: []repository.Proxy{
+			{ID: proxyID, Name: "proxy1", Host: "proxy.example.com", Port: 8000, Protocol: "http", Username: &username, PasswordSecretName: &passwordSecret, Enabled: true},
+		}},
+		Instances:        instanceStore,
+		EvolutionFactory: fakeEvolutionFactory{creator: creator},
+		SecretResolver: StaticSecretResolver{
+			"EVOLUTION_API_KEY": "evolution-secret",
+		},
+	})
+
+	_, err := service.Create(context.Background(), CreateParams{
+		PhoneNumberID: "phone-id",
+		PhoneE164:     "5511999999999",
+		InstanceName:  "chip_5511999999999",
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	if creator.request.ProxyPassword != "proxy-secret" {
+		t.Fatalf("ProxyPassword = %q", creator.request.ProxyPassword)
 	}
 }
 

@@ -32,6 +32,20 @@ func (s *fakePhoneNumberStore) List(ctx context.Context) ([]repository.PhoneNumb
 	return s.items, nil
 }
 
+func (s *fakePhoneNumberStore) Update(ctx context.Context, id string, params repository.UpdatePhoneNumberParams) (repository.PhoneNumber, error) {
+	return repository.PhoneNumber{
+		ID:        id,
+		PhoneE164: "5511999999999",
+		Label:     *params.Label,
+		Status:    *params.Status,
+		Metadata:  params.Metadata,
+	}, nil
+}
+
+func (s *fakePhoneNumberStore) Delete(ctx context.Context, id string) error {
+	return nil
+}
+
 func TestCreatePhoneNumberRoute(t *testing.T) {
 	store := &fakePhoneNumberStore{}
 	server := NewServer(ServerConfig{PhoneNumbers: store})
@@ -93,5 +107,59 @@ func TestListPhoneNumbersRoute(t *testing.T) {
 	}
 	if len(response.Items) != 1 {
 		t.Fatalf("items len = %d", len(response.Items))
+	}
+}
+
+func TestUpdatePhoneNumberRoute(t *testing.T) {
+	store := &fakePhoneNumberStore{}
+	server := NewServer(ServerConfig{PhoneNumbers: store})
+	body := []byte(`{
+		"label": "updated-chip",
+		"status": "active"
+	}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/phone-numbers/phone-id", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+
+	var response phoneNumberResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if response.Label != "updated-chip" {
+		t.Fatalf("Label = %q", response.Label)
+	}
+}
+
+func TestDeletePhoneNumberRoute(t *testing.T) {
+	store := &fakePhoneNumberStore{}
+	server := NewServer(ServerConfig{PhoneNumbers: store})
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/phone-numbers/phone-id", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestRestartPhoneNumberRoute(t *testing.T) {
+	creator := &fakeInstanceCreator{}
+	server := NewServer(ServerConfig{
+		PhoneNumbers:    &fakePhoneNumberStore{},
+		InstanceCreator: creator,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/phone-numbers/phone-id/restart", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
 	}
 }

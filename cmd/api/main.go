@@ -18,6 +18,7 @@ import (
 	"aquecedor-evolution/backend/internal/instance"
 	"aquecedor-evolution/backend/internal/observability"
 	"aquecedor-evolution/backend/internal/planner"
+	"aquecedor-evolution/backend/internal/proxy/fbflix"
 	"aquecedor-evolution/backend/internal/repository"
 	"aquecedor-evolution/backend/internal/runner"
 	"aquecedor-evolution/backend/internal/warmingscore"
@@ -124,6 +125,19 @@ func run() error {
 		serverConfig.EvolutionSync = syncService
 		serverConfig.Observability = observability.NewService(observabilityConfig, warmingJobs, executionLogs, evolutionEvents)
 		serverConfig.StaleJobCleanup = observability.NewStaleCleanupService(observabilityConfig, warmingJobs)
+		fbflixToken := os.Getenv("FBFLIX_B2B_TOKEN")
+		if fbflixToken != "" {
+			fbflixBaseURL := os.Getenv("FBFLIX_API_URL")
+			if fbflixBaseURL == "" {
+				fbflixBaseURL = "https://mxnlerkeygfvdnznoxld.supabase.co/functions/v1/proxyfbflix-api"
+			}
+			fbflixClient := fbflix.NewClient(fbflix.Config{
+				BaseURL: fbflixBaseURL,
+				Token:   fbflixToken,
+				Timeout: appConfig.EvolutionTimeout,
+			})
+			serverConfig.FBFlixSync = fbflix.NewSyncService(fbflixClient, proxies)
+		}
 	}
 
 	server := httpserver.NewServer(serverConfig)

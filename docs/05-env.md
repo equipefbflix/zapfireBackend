@@ -72,6 +72,17 @@ PROXY_01_PASSWORD=change-me
 PROXY_02_PASSWORD=change-me
 ```
 
+## FBFlix / ProxyFbflix
+
+O endpoint real da FBFlix e uma Supabase Edge Function que recebe chamadas `POST` com `action`.
+
+```env
+FBFLIX_API_URL=https://mxnlerkeygfvdnznoxld.supabase.co/functions/v1/proxyfbflix-api
+FBFLIX_B2B_TOKEN=fbx_b2b_change-me
+```
+
+Nao gravar token real em documentacao ou arquivos versionaveis. A listagem usa `action=get-proxy-list`; compra via saldo usa `action=purchase-proxy-with-balance`.
+
 ## Regras de aquecimento
 
 ```env

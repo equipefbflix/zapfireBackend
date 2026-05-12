@@ -3,6 +3,10 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+if [ -f .env ]; then
+  export $(grep -v '^#' .env | xargs)
+fi
+
 : "${DATABASE_URL:?DATABASE_URL is required}"
 : "${SERVER_URL:?SERVER_URL is required}"
 : "${AUTHENTICATION_API_KEY:?AUTHENTICATION_API_KEY is required}"

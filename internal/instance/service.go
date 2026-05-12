@@ -15,6 +15,7 @@ var ErrNoEvolutionServer = errors.New("no enabled evolution server available")
 
 type EvolutionServerStore interface {
 	ListEnabled(ctx context.Context) ([]repository.EvolutionServer, error)
+	GetByID(ctx context.Context, id string) (repository.EvolutionServer, error)
 }
 
 type ProxyStore interface {
@@ -23,10 +24,12 @@ type ProxyStore interface {
 
 type InstanceStore interface {
 	Create(ctx context.Context, params repository.CreateInstanceParams) (repository.Instance, error)
+	GetOpenByPhoneNumberID(ctx context.Context, phoneNumberID string) (repository.Instance, error)
 }
 
 type EvolutionInstanceCreator interface {
 	CreateInstance(ctx context.Context, request evolution.CreateInstanceRequest) (evolution.CreateInstanceResponse, error)
+	RestartInstance(ctx context.Context, instanceName string) error
 }
 
 type EvolutionFactory interface {
@@ -40,6 +43,9 @@ type SecretResolver interface {
 type StaticSecretResolver map[string]string
 
 func (r StaticSecretResolver) Resolve(secretName string) string {
+	if value, ok := literalSecret(secretName); ok {
+		return value
+	}
 	return r[secretName]
 }
 
@@ -173,4 +179,19 @@ func (s Service) Create(ctx context.Context, params CreateParams) (repository.In
 	}
 
 	return instance, nil
+}
+
+func (s Service) Restart(ctx context.Context, phoneNumberID string) error {
+	inst, err := s.instances.GetOpenByPhoneNumberID(ctx, phoneNumberID)
+	if err != nil {
+		return fmt.Errorf("find open instance: %w", err)
+	}
+
+	server, err := s.evolutionServers.GetByID(ctx, inst.EvolutionServerID)
+	if err != nil {
+		return fmt.Errorf("get evolution server: %w", err)
+	}
+
+	creator := s.evolutionFactory.New(server)
+	return creator.RestartInstance(ctx, inst.InstanceName)
 }

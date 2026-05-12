@@ -58,6 +58,33 @@ returning id::text, name, host, port, protocol, username, password_secret_name, 
 	return proxy, nil
 }
 
+func (r ProxyRepository) Upsert(ctx context.Context, params CreateProxyParams) (Proxy, error) {
+	metadata, err := encodeMetadata(params.Metadata)
+	if err != nil {
+		return Proxy{}, err
+	}
+
+	row := r.db.QueryRow(ctx, `
+insert into public.proxies (name, host, port, protocol, username, password_secret_name, enabled, max_instances, metadata)
+values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+on conflict (host, port) do update set
+	name = excluded.name,
+	protocol = excluded.protocol,
+	username = excluded.username,
+	password_secret_name = excluded.password_secret_name,
+	enabled = excluded.enabled,
+	max_instances = excluded.max_instances,
+	metadata = public.proxies.metadata || excluded.metadata
+returning id::text, name, host, port, protocol, username, password_secret_name, enabled, max_instances, current_instances, metadata::text::bytea
+`, params.Name, params.Host, params.Port, params.Protocol, params.Username, params.PasswordSecretName, params.Enabled, params.MaxInstances, metadata)
+
+	proxy, err := scanProxy(row)
+	if err != nil {
+		return Proxy{}, fmt.Errorf("upsert proxy: %w", err)
+	}
+	return proxy, nil
+}
+
 func (r ProxyRepository) ListEnabled(ctx context.Context) ([]Proxy, error) {
 	rows, err := r.db.Query(ctx, `
 select id::text, name, host, port, protocol, username, password_secret_name, enabled, max_instances, current_instances, metadata::text::bytea

@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
@@ -71,6 +73,70 @@ func TestSupabaseVerifierVerify(t *testing.T) {
 		t.Fatalf("user.ID = %q", user.ID)
 	}
 	if user.Email != "user@example.com" {
+		t.Fatalf("user.Email = %q", user.Email)
+	}
+	if user.Role != "authenticated" {
+		t.Fatalf("user.Role = %q", user.Role)
+	}
+}
+
+func TestSupabaseVerifierVerifyES256(t *testing.T) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey() error = %v", err)
+	}
+
+	kid := "test-ec-kid"
+	jwksServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"keys": []map[string]any{
+				{
+					"kty": "EC",
+					"kid": kid,
+					"use": "sig",
+					"alg": "ES256",
+					"crv": "P-256",
+					"x":   base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.X.Bytes()),
+					"y":   base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.Y.Bytes()),
+				},
+			},
+		})
+	}))
+	defer jwksServer.Close()
+
+	issuer := "https://project-ref.supabase.co/auth/v1"
+	tokenString := jwt.NewWithClaims(jwt.SigningMethodES256, jwt.MapClaims{
+		"iss":        issuer,
+		"aud":        "authenticated",
+		"sub":        "user-ec-123",
+		"email":      "ec-user@example.com",
+		"role":       "authenticated",
+		"session_id": "session-ec-123",
+		"exp":        time.Now().Add(5 * time.Minute).Unix(),
+		"iat":        time.Now().Add(-1 * time.Minute).Unix(),
+	})
+	tokenString.Header["kid"] = kid
+
+	signedToken, err := tokenString.SignedString(privateKey)
+	if err != nil {
+		t.Fatalf("SignedString() error = %v", err)
+	}
+
+	verifier := NewSupabaseVerifier(SupabaseVerifierConfig{
+		Issuer:  issuer,
+		JWKSURL: jwksServer.URL,
+		Client:  jwksServer.Client(),
+	})
+
+	user, err := verifier.Verify(context.Background(), signedToken)
+	if err != nil {
+		t.Fatalf("Verify() error = %v", err)
+	}
+
+	if user.ID != "user-ec-123" {
+		t.Fatalf("user.ID = %q", user.ID)
+	}
+	if user.Email != "ec-user@example.com" {
 		t.Fatalf("user.Email = %q", user.Email)
 	}
 	if user.Role != "authenticated" {

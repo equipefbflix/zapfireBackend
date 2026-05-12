@@ -3,6 +3,7 @@ package httpserver
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"aquecedor-evolution/backend/internal/repository"
 )
@@ -122,10 +123,21 @@ func newProxyResponse(proxy repository.Proxy) proxyResponse {
 		Port:               proxy.Port,
 		Protocol:           proxy.Protocol,
 		Username:           proxy.Username,
-		PasswordSecretName: proxy.PasswordSecretName,
+		PasswordSecretName: publicPasswordSecretName(proxy.PasswordSecretName),
 		Enabled:            proxy.Enabled,
 		MaxInstances:       proxy.MaxInstances,
 		CurrentInstances:   proxy.CurrentInstances,
 		Metadata:           proxy.Metadata,
 	}
+}
+
+func publicPasswordSecretName(secretName *string) *string {
+	if secretName == nil {
+		return nil
+	}
+	if strings.HasPrefix(*secretName, "literal:") {
+		redacted := "literal:***"
+		return &redacted
+	}
+	return secretName
 }

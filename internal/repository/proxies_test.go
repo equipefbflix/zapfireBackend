@@ -88,6 +88,47 @@ func TestProxyRepositoryList(t *testing.T) {
 	}
 }
 
+func TestProxyRepositoryUpsert(t *testing.T) {
+	db := &fakeExecutor{
+		row: fakeRow{values: []any{
+			"proxy-id",
+			"proxy1",
+			"proxy.example.com",
+			8000,
+			"http",
+			"user",
+			"PROXY_01_PASSWORD",
+			true,
+			20,
+			0,
+			[]byte(`{"source":"fbflix"}`),
+		}},
+	}
+	repo := NewProxyRepository(db)
+
+	proxy, err := repo.Upsert(context.Background(), CreateProxyParams{
+		Name:               "proxy1",
+		Host:               "proxy.example.com",
+		Port:               8000,
+		Protocol:           "http",
+		Username:           stringPtr("user"),
+		PasswordSecretName: stringPtr("PROXY_01_PASSWORD"),
+		Enabled:            true,
+		MaxInstances:       intPtr(20),
+		Metadata:           map[string]any{"source": "fbflix"},
+	})
+	if err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	if proxy.ID != "proxy-id" {
+		t.Fatalf("ID = %q", proxy.ID)
+	}
+	if !strings.Contains(db.lastSQL, "on conflict (host, port)") {
+		t.Fatalf("sql = %s", db.lastSQL)
+	}
+}
+
 func stringPtr(value string) *string {
 	return &value
 }

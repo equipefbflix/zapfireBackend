@@ -217,6 +217,10 @@ func (c *Client) DeleteInstance(ctx context.Context, instanceName string) error 
 	return c.do(ctx, http.MethodDelete, "/instance/delete/"+url.PathEscape(instanceName), nil, nil)
 }
 
+func (c *Client) RestartInstance(ctx context.Context, instanceName string) error {
+	return c.do(ctx, http.MethodPost, "/instance/restart/"+url.PathEscape(instanceName), nil, nil)
+}
+
 func (c *Client) ConnectInstance(ctx context.Context, instanceName, number string) (ConnectInstanceResponse, error) {
 	path := "/instance/connect/" + url.PathEscape(instanceName)
 	if number != "" {

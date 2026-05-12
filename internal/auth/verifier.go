@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/json"
@@ -53,7 +55,7 @@ type SupabaseVerifier struct {
 	refreshTimeout time.Duration
 
 	mu      sync.RWMutex
-	keySet  map[string]*rsa.PublicKey
+	keySet  map[string]any
 	loaded  bool
 }
 
@@ -72,8 +74,11 @@ type jsonWebKey struct {
 	Kid string `json:"kid"`
 	Kty string `json:"kty"`
 	Alg string `json:"alg"`
+	Crv string `json:"crv"`
 	N   string `json:"n"`
 	E   string `json:"e"`
+	X   string `json:"x"`
+	Y   string `json:"y"`
 }
 
 func NewSupabaseVerifier(cfg SupabaseVerifierConfig) *SupabaseVerifier {
@@ -116,7 +121,7 @@ func (v *SupabaseVerifier) Verify(ctx context.Context, token string) (User, erro
 			return nil, fmt.Errorf("signing key %q not found", kid)
 		}
 		return key, nil
-	}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}), jwt.WithIssuer(v.issuer))
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg(), jwt.SigningMethodES256.Alg()}), jwt.WithIssuer(v.issuer))
 	if err != nil {
 		return User{}, err
 	}
@@ -149,7 +154,7 @@ func containsAudience(audiences []string, expected string) bool {
 	return false
 }
 
-func (v *SupabaseVerifier) lookupKey(kid string) (*rsa.PublicKey, bool) {
+func (v *SupabaseVerifier) lookupKey(kid string) (any, bool) {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 	if !v.loaded {
@@ -183,19 +188,22 @@ func (v *SupabaseVerifier) refreshKeys(ctx context.Context) error {
 		return err
 	}
 
-	keySet := make(map[string]*rsa.PublicKey, len(body.Keys))
+	keySet := make(map[string]any, len(body.Keys))
 	for _, key := range body.Keys {
-		if key.Kty != "RSA" || key.Kid == "" || key.N == "" || key.E == "" {
+		if key.Kid == "" {
 			continue
 		}
-		publicKey, err := rsaPublicKeyFromJWK(key)
+		publicKey, err := publicKeyFromJWK(key)
 		if err != nil {
 			return err
+		}
+		if publicKey == nil {
+			continue
 		}
 		keySet[key.Kid] = publicKey
 	}
 	if len(keySet) == 0 {
-		return fmt.Errorf("jwks did not contain any rsa signing keys")
+		return fmt.Errorf("jwks did not contain any supported signing keys")
 	}
 
 	v.mu.Lock()
@@ -203,6 +211,23 @@ func (v *SupabaseVerifier) refreshKeys(ctx context.Context) error {
 	v.loaded = true
 	v.mu.Unlock()
 	return nil
+}
+
+func publicKeyFromJWK(key jsonWebKey) (any, error) {
+	switch key.Kty {
+	case "RSA":
+		if key.N == "" || key.E == "" {
+			return nil, nil
+		}
+		return rsaPublicKeyFromJWK(key)
+	case "EC":
+		if key.Crv != "P-256" || key.X == "" || key.Y == "" {
+			return nil, nil
+		}
+		return ecdsaPublicKeyFromJWK(key)
+	default:
+		return nil, nil
+	}
 }
 
 func rsaPublicKeyFromJWK(key jsonWebKey) (*rsa.PublicKey, error) {
@@ -224,5 +249,29 @@ func rsaPublicKeyFromJWK(key jsonWebKey) (*rsa.PublicKey, error) {
 	return &rsa.PublicKey{
 		N: modulus,
 		E: int(exponent.Int64()),
+	}, nil
+}
+
+func ecdsaPublicKeyFromJWK(key jsonWebKey) (*ecdsa.PublicKey, error) {
+	xBytes, err := base64.RawURLEncoding.DecodeString(key.X)
+	if err != nil {
+		return nil, fmt.Errorf("decode jwk x: %w", err)
+	}
+	yBytes, err := base64.RawURLEncoding.DecodeString(key.Y)
+	if err != nil {
+		return nil, fmt.Errorf("decode jwk y: %w", err)
+	}
+
+	curve := elliptic.P256()
+	x := new(big.Int).SetBytes(xBytes)
+	y := new(big.Int).SetBytes(yBytes)
+	if !curve.IsOnCurve(x, y) {
+		return nil, fmt.Errorf("ecdsa key is not on curve")
+	}
+
+	return &ecdsa.PublicKey{
+		Curve: curve,
+		X:     x,
+		Y:     y,
 	}, nil
 }

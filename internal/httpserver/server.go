@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -33,6 +34,7 @@ type ServerConfig struct {
 	Observability       ObservabilityService
 	StaleJobCleanup     StaleJobCleanupService
 	AuthVerifier        auth.Verifier
+	FBFlixSync          FBFlixSyncService
 }
 
 type Server struct {
@@ -42,11 +44,14 @@ type Server struct {
 
 type InstanceCreator interface {
 	Create(ctx context.Context, params instance.CreateParams) (repository.Instance, error)
+	Restart(ctx context.Context, phoneNumberID string) error
 }
 
 type PhoneNumberStore interface {
 	Create(ctx context.Context, params repository.CreatePhoneNumberParams) (repository.PhoneNumber, error)
 	List(ctx context.Context) ([]repository.PhoneNumber, error)
+	Update(ctx context.Context, id string, params repository.UpdatePhoneNumberParams) (repository.PhoneNumber, error)
+	Delete(ctx context.Context, id string) error
 }
 
 type ProxyStore interface {
@@ -99,6 +104,10 @@ type StaleJobCleanupService interface {
 	Cleanup(ctx context.Context) (int64, error)
 }
 
+type FBFlixSyncService interface {
+	Sync(ctx context.Context) (int, error)
+}
+
 type HealthResponse struct {
 	Status           string                  `json:"status"`
 	AppEnv           string                  `json:"appEnv"`
@@ -140,8 +149,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/instances", s.handleCreateInstance)
 	s.mux.HandleFunc("POST /api/v1/phone-numbers", s.handleCreatePhoneNumber)
 	s.mux.HandleFunc("GET /api/v1/phone-numbers", s.handleListPhoneNumbers)
+	s.mux.HandleFunc("PATCH /api/v1/phone-numbers/{id}", s.handleUpdatePhoneNumber)
+	s.mux.HandleFunc("DELETE /api/v1/phone-numbers/{id}", s.handleDeletePhoneNumber)
+	s.mux.HandleFunc("POST /api/v1/phone-numbers/{id}/restart", s.handleRestartPhoneNumberInstance)
 	s.mux.HandleFunc("POST /api/v1/proxies", s.handleCreateProxy)
 	s.mux.HandleFunc("GET /api/v1/proxies", s.handleListProxies)
+	s.mux.HandleFunc("POST /api/v1/proxies/sync/fbflix", s.handleFBFlixSync)
 	s.mux.HandleFunc("POST /api/v1/evolution-servers", s.handleCreateEvolutionServer)
 	s.mux.HandleFunc("GET /api/v1/evolution-servers", s.handleListEvolutionServers)
 	s.mux.HandleFunc("POST /api/v1/message-templates", s.handleCreateMessageTemplate)
@@ -222,6 +235,21 @@ func (s *Server) handleStaleCleanup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, StaleCleanupResponse{Affected: affected})
+}
+
+func (s *Server) handleFBFlixSync(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.FBFlixSync == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "FBFlix sync is not configured"})
+		return
+	}
+
+	count, err := s.cfg.FBFlixSync.Sync(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: fmt.Sprintf("sync failed: %v", err)})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"count": count})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

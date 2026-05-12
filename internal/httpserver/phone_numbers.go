@@ -85,6 +85,83 @@ func (s *Server) handleListPhoneNumbers(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, http.StatusOK, response)
 }
 
+type updatePhoneNumberRequest struct {
+	Label    *string        `json:"label"`
+	Status   *string        `json:"status"`
+	Metadata map[string]any `json:"metadata"`
+}
+
+func (s *Server) handleUpdatePhoneNumber(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.PhoneNumbers == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "phone number store is not configured"})
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+
+	var request updatePhoneNumberRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid json body"})
+		return
+	}
+
+	updated, err := s.cfg.PhoneNumbers.Update(r.Context(), id, repository.UpdatePhoneNumberParams{
+		Label:    request.Label,
+		Status:   request.Status,
+		Metadata: request.Metadata,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to update phone number"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, newPhoneNumberResponse(updated))
+}
+
+func (s *Server) handleDeletePhoneNumber(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.PhoneNumbers == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "phone number store is not configured"})
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+
+	if err := s.cfg.PhoneNumbers.Delete(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to delete phone number"})
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleRestartPhoneNumberInstance(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.InstanceCreator == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "instance service is not configured"})
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+
+	if err := s.cfg.InstanceCreator.Restart(r.Context(), id); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to restart instance: " + err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "restart initiated"})
+}
+
 func newPhoneNumberResponse(phone repository.PhoneNumber) phoneNumberResponse {
 	return phoneNumberResponse{
 		ID:           phone.ID,
