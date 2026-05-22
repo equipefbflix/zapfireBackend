@@ -13,6 +13,7 @@ import (
 
 type fakeHTTPMessageTemplateStore struct {
 	createParams repository.CreateMessageTemplateParams
+	updateParams repository.UpdateMessageTemplateParams
 	items        []repository.MessageTemplate
 }
 
@@ -33,6 +34,21 @@ func (s *fakeHTTPMessageTemplateStore) Create(ctx context.Context, params reposi
 
 func (s *fakeHTTPMessageTemplateStore) List(ctx context.Context) ([]repository.MessageTemplate, error) {
 	return s.items, nil
+}
+
+func (s *fakeHTTPMessageTemplateStore) Update(ctx context.Context, id string, params repository.UpdateMessageTemplateParams) (repository.MessageTemplate, error) {
+	s.updateParams = params
+	return repository.MessageTemplate{
+		ID:              id,
+		Category:        valueOr(params.Category, "casual"),
+		Title:           valueOr(params.Title, "template atualizado"),
+		Body:            valueOr(params.Body, "body atualizado"),
+		Weight:          intOr(params.Weight, 1),
+		Enabled:         boolOr(params.Enabled, true),
+		MinWarmingScore: floatOr(params.MinWarmingScore, 0),
+		MaxWarmingScore: floatOr(params.MaxWarmingScore, 100),
+		Metadata:        params.Metadata,
+	}, nil
 }
 
 func TestCreateMessageTemplateRoute(t *testing.T) {
@@ -139,4 +155,54 @@ func TestListMessageTemplatesRoute(t *testing.T) {
 	if response.Items[0].Category != "casual" {
 		t.Fatalf("Category = %q", response.Items[0].Category)
 	}
+}
+
+func TestUpdateMessageTemplateRoute(t *testing.T) {
+	store := &fakeHTTPMessageTemplateStore{}
+	server := NewServer(ServerConfig{MessageTemplates: store})
+	body := []byte(`{
+		"title": "template atualizado",
+		"body": "novo body",
+		"weight": 3,
+		"enabled": false
+	}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/message-templates/template-id", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if store.updateParams.Title == nil || *store.updateParams.Title != "template atualizado" {
+		t.Fatalf("Title = %v", store.updateParams.Title)
+	}
+}
+
+func valueOr(value *string, fallback string) string {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func intOr(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func boolOr(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func floatOr(value *float64, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
 }

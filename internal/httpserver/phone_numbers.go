@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"aquecedor-evolution/backend/internal/repository"
@@ -10,17 +11,21 @@ import (
 type createPhoneNumberRequest struct {
 	PhoneE164 string         `json:"phoneE164"`
 	Label     string         `json:"label"`
+	Type      *string        `json:"type,omitempty"`
 	TestRunID string         `json:"testRunId,omitempty"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 type phoneNumberResponse struct {
-	ID           string         `json:"id"`
-	PhoneE164    string         `json:"phoneE164"`
-	Label        string         `json:"label"`
-	Status       string         `json:"status"`
-	WarmingScore float64        `json:"warmingScore"`
-	Metadata     map[string]any `json:"metadata"`
+	ID                string         `json:"id"`
+	PhoneE164         string         `json:"phoneE164"`
+	Label             string         `json:"label"`
+	Type              string         `json:"type"`
+	Status            string         `json:"status"`
+	WarmingScore      float64        `json:"warmingScore"`
+	ConnectionStatus  string         `json:"connectionStatus"`
+	DailyMessageCount int            `json:"dailyMessageCount"`
+	Metadata          map[string]any `json:"metadata"`
 }
 
 type listPhoneNumbersResponse struct {
@@ -54,6 +59,7 @@ func (s *Server) handleCreatePhoneNumber(w http.ResponseWriter, r *http.Request)
 	created, err := s.cfg.PhoneNumbers.Create(r.Context(), repository.CreatePhoneNumberParams{
 		PhoneE164: request.PhoneE164,
 		Label:     request.Label,
+		Type:      request.Type,
 		Metadata:  metadata,
 	})
 	if err != nil {
@@ -72,7 +78,8 @@ func (s *Server) handleListPhoneNumbers(w http.ResponseWriter, r *http.Request) 
 
 	items, err := s.cfg.PhoneNumbers.List(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to list phone numbers"})
+		slog.Error("failed to list phone numbers", "error", err)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to list phone numbers: " + err.Error()})
 		return
 	}
 
@@ -119,6 +126,12 @@ func (s *Server) handleUpdatePhoneNumber(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	if request.Status != nil && *request.Status == "warming" && s.cfg.HeaterActivator != nil {
+		if err := s.cfg.HeaterActivator.Activate(r.Context(), id); err != nil {
+			slog.Error("failed to activate heater", "error", err, "phoneNumberId", id)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, newPhoneNumberResponse(updated))
 }
 
@@ -162,13 +175,53 @@ func (s *Server) handleRestartPhoneNumberInstance(w http.ResponseWriter, r *http
 	writeJSON(w, http.StatusOK, map[string]string{"message": "restart initiated"})
 }
 
+type dailyLimitResponse struct {
+	PhoneNumberID     string `json:"phoneNumberId"`
+	DailyMessageCount int    `json:"dailyMessageCount"`
+	DailyLimit        int    `json:"dailyLimit"`
+}
+
+func (s *Server) handleGetDailyLimit(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.PhoneNumbers == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "phone number store is not configured"})
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+
+	count, err := s.cfg.PhoneNumbers.GetDailyMessageCount(r.Context(), id)
+	if err != nil {
+		slog.Error("failed to get daily message count", "error", err, "phoneNumberId", id)
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to get daily message count: " + err.Error()})
+		return
+	}
+
+	limit := s.cfg.DailyLimitPerNumber
+	if limit <= 0 {
+		limit = 30
+	}
+
+	writeJSON(w, http.StatusOK, dailyLimitResponse{
+		PhoneNumberID:     id,
+		DailyMessageCount: count,
+		DailyLimit:        limit,
+	})
+}
+
 func newPhoneNumberResponse(phone repository.PhoneNumber) phoneNumberResponse {
 	return phoneNumberResponse{
-		ID:           phone.ID,
-		PhoneE164:    phone.PhoneE164,
-		Label:        phone.Label,
-		Status:       phone.Status,
-		WarmingScore: phone.WarmingScore,
-		Metadata:     phone.Metadata,
+		ID:                phone.ID,
+		PhoneE164:         phone.PhoneE164,
+		Label:             phone.Label,
+		Type:              phone.Type,
+		Status:            phone.Status,
+		WarmingScore:      phone.WarmingScore,
+		ConnectionStatus:  phone.ConnectionStatus,
+		DailyMessageCount: 0,
+		Metadata:          phone.Metadata,
 	}
 }

@@ -14,6 +14,7 @@ import (
 
 type fakeHTTPConversationScriptStore struct {
 	createParams conversation.CreateScriptParams
+	updateParams conversation.UpdateScriptParams
 	items        []conversation.ScriptWithSteps
 }
 
@@ -47,6 +48,51 @@ func (s *fakeHTTPConversationScriptStore) Create(ctx context.Context, params con
 
 func (s *fakeHTTPConversationScriptStore) List(ctx context.Context) ([]conversation.ScriptWithSteps, error) {
 	return s.items, nil
+}
+
+func (s *fakeHTTPConversationScriptStore) GetByID(ctx context.Context, id string) (conversation.ScriptWithSteps, error) {
+	if len(s.items) > 0 {
+		return s.items[0], nil
+	}
+	return conversation.ScriptWithSteps{
+		Script: repository.ConversationScript{
+			ID:              id,
+			Name:            "script-existente",
+			Category:        "casual",
+			Enabled:         true,
+			Weight:          1,
+			MinWarmingScore: 0,
+			MaxWarmingScore: 100,
+		},
+		Steps: []repository.ConversationStep{},
+	}, nil
+}
+
+func (s *fakeHTTPConversationScriptStore) Update(ctx context.Context, id string, params conversation.UpdateScriptParams) (conversation.ScriptWithSteps, error) {
+	s.updateParams = params
+	return conversation.ScriptWithSteps{
+		Script: repository.ConversationScript{
+			ID:              id,
+			Name:            params.Name,
+			Category:        params.Category,
+			Enabled:         params.Enabled,
+			Weight:          params.Weight,
+			MinWarmingScore: params.MinWarmingScore,
+			MaxWarmingScore: params.MaxWarmingScore,
+		},
+		Steps: []repository.ConversationStep{
+			{
+				ID:              "step-1",
+				ScriptID:        id,
+				StepOrder:       1,
+				SenderRole:      "a",
+				ActionType:      "send_text",
+				Payload:         map[string]any{"text": "ola"},
+				MinDelaySeconds: 1,
+				MaxDelaySeconds: 3,
+			},
+		},
+	}, nil
 }
 
 func TestCreateConversationScriptRoute(t *testing.T) {
@@ -156,5 +202,67 @@ func TestListConversationScriptsRoute(t *testing.T) {
 	}
 	if len(response.Items[0].Steps) != 1 {
 		t.Fatalf("steps len = %d", len(response.Items[0].Steps))
+	}
+}
+
+func TestGetConversationScriptRoute(t *testing.T) {
+	server := NewServer(ServerConfig{ConversationScripts: &fakeHTTPConversationScriptStore{items: []conversation.ScriptWithSteps{
+		{
+			Script: repository.ConversationScript{
+				ID:              "script-id",
+				Name:            "conversa_basica_manha",
+				Category:        "casual",
+				Enabled:         true,
+				Weight:          10,
+				MinWarmingScore: 0,
+				MaxWarmingScore: 40,
+			},
+			Steps: []repository.ConversationStep{},
+		},
+	}}})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/conversation-scripts/script-id", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUpdateConversationScriptRoute(t *testing.T) {
+	store := &fakeHTTPConversationScriptStore{}
+	server := NewServer(ServerConfig{ConversationScripts: store})
+	body := []byte(`{
+		"name": "conversa_editada",
+		"category": "reactive",
+		"enabled": true,
+		"weight": 5,
+		"minWarmingScore": 0,
+		"maxWarmingScore": 100,
+		"steps": [
+			{
+				"stepOrder": 1,
+				"senderRole": "a",
+				"actionType": "send_text",
+				"payload": {"text":"ola"},
+				"minDelaySeconds": 1,
+				"maxDelaySeconds": 3
+			}
+		]
+	}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/conversation-scripts/script-id", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if store.updateParams.Name != "conversa_editada" {
+		t.Fatalf("Name = %q", store.updateParams.Name)
+	}
+	if len(store.updateParams.Steps) != 1 {
+		t.Fatalf("steps len = %d", len(store.updateParams.Steps))
 	}
 }

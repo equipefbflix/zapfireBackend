@@ -17,10 +17,10 @@ WEBHOOK_EVOLUTION_SECRET=change-me
 ## Supabase
 
 ```env
-SUPABASE_PROJECT_REF=rxdophybnwoocsdyxyjm
-SUPABASE_URL=https://rxdophybnwoocsdyxyjm.supabase.co
+SUPABASE_PROJECT_REF=cqmxcsmpdshuncupcwaw
+SUPABASE_URL=https://cqmxcsmpdshuncupcwaw.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=change-me
-DATABASE_URL=postgres://postgres:password@db.rxdophybnwoocsdyxyjm.supabase.co:5432/postgres?sslmode=require
+DATABASE_URL=postgres://postgres:password@db.cqmxcsmpdshuncupcwaw.supabase.co:5432/postgres?sslmode=require
 ```
 
 O backend Go deve preferir `DATABASE_URL` para operacoes relacionais e pode usar `SUPABASE_URL` + service role para APIs auxiliares.
@@ -148,6 +148,12 @@ SCHEDULER_TICK_SECONDS=5
 ```
 
 O backend deve aceitar `RABBITMQ_URL` completo para evitar expor usuario/senha em logs ou documentacao.
+
+Observacao operacional em 2026-05-14:
+
+- o hostname interno `rabbitmq` nao resolve fora da rede privada do broker;
+- `rabbitmq.zaapfire.com.br` resolve em DNS, mas recusou conexao TCP nas portas `5672` e `5671` durante a validacao manual;
+- portanto, para broker externo, o ambiente ainda precisa expor uma porta AMQP realmente acessivel antes da validacao real do aquecedor.
 
 ## Observacao de runtime
 

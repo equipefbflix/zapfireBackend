@@ -1,23 +1,27 @@
 # Evolution API
 
-Base usada nesta especificacao: documentacao publica da Evolution API v2.
+Base usada agora nesta especificacao: `evolution-go`, publicada em `https://go.zaapfire.com.br/swagger/index.html`.
 
 ## Autenticacao
 
-A Evolution API usa header:
+A `evolution-go` usa header:
 
 ```http
 apikey: <api-key>
 ```
 
-Cada Evolution API configurada no `.env` tera:
+Mas existem dois contextos de autenticacao:
 
-- `name`
-- `base_url`
-- `api_key`
-- `weight`
-- `enabled`
-- limites locais de concorrencia e rate.
+1. **chave global da Evolution**
+   - usada para operacoes administrativas como criar instancia e listar todas as instancias;
+2. **token da propria instancia**
+   - usado para conectar, consultar status, obter QR e enviar mensagens.
+
+No backend do aquecedor isso ficou assim:
+
+- `CreateInstance` usa a chave global do `evolution_server`;
+- o backend gera um token por instancia e persiste em `instances.instance_api_key_secret_name`;
+- `connect`, `sync-state` e `send/*` usam esse token da instancia.
 
 ## Instancias
 
@@ -29,252 +33,307 @@ Endpoint:
 POST /instance/create
 ```
 
-Payload v2 relevante:
+Payload relevante:
 
 ```json
 {
-  "instanceName": "chip_5511999999999",
-  "integration": "WHATSAPP-BAILEYS",
-  "token": "",
-  "qrcode": true,
-  "number": "5511999999999",
-  "rejectCall": true,
-  "msgCall": "Nao posso atender agora.",
-  "groupsIgnore": true,
-  "alwaysOnline": true,
-  "readMessages": true,
-  "readStatus": true,
-  "syncFullHistory": false,
-  "proxyHost": "proxy.example.com",
-  "proxyPort": "8000",
-  "proxyProtocol": "http",
-  "proxyUsername": "user",
-  "proxyPassword": "pass",
-  "webhook": {
-    "url": "https://backend.example.com/webhooks/evolution",
-    "byEvents": true,
-    "base64": false,
-    "events": [
-      "MESSAGES_UPSERT",
-      "MESSAGES_UPDATE",
-      "CONNECTION_UPDATE",
-      "QRCODE_UPDATED"
-    ]
+  "instanceId": "chip_5511999999999",
+  "name": "chip_5511999999999",
+  "token": "inst_chip_5511999999999_xxx",
+  "proxy": {
+    "protocol": "http",
+    "host": "proxy.example.com",
+    "port": "8000",
+    "username": "user",
+    "password": "pass"
+  },
+  "advancedSettings": {
+    "alwaysOnline": true,
+    "ignoreGroups": true,
+    "ignoreStatus": false,
+    "msgRejectCall": "Nao posso atender agora.",
+    "readMessages": true,
+    "rejectCall": true
   }
 }
 ```
 
-Notas:
+Resposta esperada:
 
-- Em v2, proxy e enviado como campos planos `proxyHost`, `proxyPort`, `proxyProtocol`, `proxyUsername`, `proxyPassword`.
-- Em v1, proxy aparece como objeto `proxy`. O cliente Go deve isolar essa diferenca em um adaptador, caso seja necessario suportar v1.
-- `token` pode ficar vazio para a Evolution gerar uma chave por instancia, mas o backend deve persistir a chave retornada em `instances.instance_api_key`.
+```json
+{
+  "message": "success",
+  "data": {
+    "instanceId": "uuid-gerado",
+    "name": "chip_5511999999999",
+    "token": "inst_chip_5511999999999_xxx",
+    "status": "created"
+  }
+}
+```
 
 ### Conectar instancia
 
 Endpoint:
 
 ```http
-GET /instance/connect/{instance}?number=5511999999999
+POST /instance/connect
 ```
 
-Retorna `pairingCode`, `code` e `count`. O backend deve persistir tentativas de conexao e expor esse retorno para o painel/cliente.
+Payload operacional minimo:
+
+```json
+{
+  "webhookUrl": "https://backend.example.com/api/v1/webhooks/evolution",
+  "subscribe": [
+    "messages.upsert",
+    "connection.update"
+  ]
+}
+```
+
+Resposta da conexao:
+
+```json
+{
+  "message": "success",
+  "data": {
+    "jid": "5511999999999@s.whatsapp.net",
+    "webhookUrl": "https://backend.example.com/api/v1/webhooks/evolution",
+    "eventString": "messages.upsert,connection.update"
+  }
+}
+```
+
+Para exibir pareamento no frontend, o backend faz em seguida:
+
+```http
+GET /instance/qr
+```
+
+e mapeia a resposta para o contrato interno atual:
+
+- `pairingCode` <- `data.qrcode`
+- `code` <- `data.code`
 
 ### Estado da conexao
 
 Endpoint:
 
 ```http
-GET /instance/connectionState/{instance}
+GET /instance/status
 ```
 
-Estados esperados incluem `open`, `close` e estados intermediarios retornados pela Evolution.
+Resposta tipica:
+
+```json
+{
+  "message": "success",
+  "data": {
+    "instanceId": "uuid-da-instancia",
+    "name": "chip_5511999999999",
+    "status": "open",
+    "profileName": "Chip 1"
+  }
+}
+```
+
+Mapeamento interno atual:
+
+- `open` -> `open`
+- `close` -> `close`
+- vazio + `connected=true` -> `open`
+- vazio + `connected=false` -> `close`
 
 ### Buscar instancias
 
-Endpoint:
+Endpoint administrativo:
 
 ```http
-GET /instance/fetchInstances
-GET /instance/fetchInstances?instanceName=<name>
+GET /instance/all
 ```
 
-Usado pelos crons de reconciliacao.
+Resposta tipica:
+
+```json
+{
+  "message": "success",
+  "data": [
+    {
+      "id": "abc123",
+      "name": "chip_5511999999999",
+      "connected": true,
+      "jid": "5511999999999@s.whatsapp.net"
+    }
+  ]
+}
+```
 
 ### Reiniciar instancia
 
-Endpoint:
+Endpoint operacional:
 
 ```http
-PUT /instance/restart/{instance}
+POST /instance/reconnect
 ```
 
-Usado apenas por politica de recuperacao, com limite de tentativas.
+No backend atual, `RestartInstance` passou a usar esse endpoint com o token da instancia.
 
-### Configuracoes
+### Deletar instancia
+
+Endpoint administrativo:
 
 ```http
-POST /settings/set/{instance}
-GET /settings/find/{instance}
+DELETE /instance/delete/{instanceId}
 ```
 
-Configuracoes iniciais recomendadas para aquecimento:
-
-- `rejectCall=true`
-- `groupsIgnore=true`
-- `alwaysOnline=true`
-- `readMessages=true`
-- `readStatus=true`
-- `syncFullHistory=false`
+Esse caminho continua exigindo chave global.
 
 ## Mensagens e acoes
 
 ### Texto
 
 ```http
-POST /message/sendText/{instance}
+POST /send/text
 ```
 
-Payload v2:
+Payload:
 
 ```json
 {
   "number": "5511888888888",
   "text": "Oi, tudo bem?",
   "delay": 1200,
-  "linkPreview": false,
   "quoted": {
-    "key": {
-      "id": "MESSAGE_ID"
-    },
-    "message": {
-      "conversation": "Mensagem anterior"
-    }
+    "messageId": "MESSAGE_ID",
+    "participant": "5511888888888@s.whatsapp.net"
   }
 }
 ```
 
-### Presenca digitando
+### Presenca
 
 ```http
-POST /chat/sendPresence/{instance}
+POST /message/presence
 ```
 
-Usar antes de texto para simular conversa mais natural:
+Payloads usados pelo aquecedor:
 
 ```json
 {
   "number": "5511888888888",
-  "options": {
-    "delay": 1500,
-    "presence": "composing"
-  }
+  "state": "composing",
+  "isAudio": false
 }
 ```
+
+```json
+{
+  "number": "5511888888888",
+  "state": "composing",
+  "isAudio": true
+}
+```
+
+Regra atual no backend:
+
+- `send_typing` -> `state=composing`, `isAudio=false`
+- `send_recording` -> `state=composing`, `isAudio=true`
 
 ### Reacao
 
 ```http
-POST /message/sendReaction/{instance}
+POST /message/react
 ```
 
-Exige chave da mensagem anterior:
+Payload:
 
 ```json
 {
-  "key": {
-    "remoteJid": "5511888888888@s.whatsapp.net",
-    "fromMe": false,
-    "id": "MESSAGE_ID"
-  },
+  "number": "5511888888888@s.whatsapp.net",
+  "id": "MESSAGE_ID",
+  "fromMe": false,
   "reaction": "👍"
 }
 ```
 
-### Resposta citada
-
-Resposta citada e uma variacao do envio de texto com `quoted`. O backend deve guardar `remoteJid`, `fromMe` e `id` retornados pela Evolution para permitir respostas e reacoes futuras.
-
-### Midia
-
-Endpoints esperados na Evolution v2:
-
-- `POST /message/sendMedia/{instance}`
-- `POST /message/sendWhatsAppAudio/{instance}`
-- `POST /message/sendSticker/{instance}`
-- `POST /message/sendLocation/{instance}`
-- `POST /message/sendContact/{instance}`
-- `POST /message/sendPoll/{instance}`
-- `POST /message/sendStatus/{instance}`
-
-Nem todos devem entrar na primeira versao. Prioridade:
-
-1. texto
-2. presenca digitando
-3. resposta citada
-4. reacao
-5. sticker
-6. imagem/audio
-7. status
-8. contato/localizacao/poll
-
-### Typing e recording
-
-Os modos de digitacao e gravacao usam o mesmo endpoint de presenca:
+### Midia e audio
 
 ```http
-POST /chat/sendPresence/{instance}
+POST /send/media
 ```
 
-Payloads:
+Payload de imagem/video/documento:
 
 ```json
 {
   "number": "5511888888888",
-  "options": {
-    "delay": 1200,
-    "presence": "composing"
-  }
+  "url": "https://example.com/file.png",
+  "type": "image",
+  "caption": "Bom dia",
+  "filename": "file.png",
+  "delay": 1000
 }
 ```
+
+Payload de audio:
 
 ```json
 {
   "number": "5511888888888",
-  "options": {
-    "delay": 900,
-    "presence": "recording"
-  }
+  "url": "https://example.com/audio.ogg",
+  "type": "audio",
+  "delay": 1500
 }
 ```
 
-### Ligacoes
+### Sticker
 
-A documentacao publica evidencia configuracao para rejeitar chamadas (`rejectCall` e `msgCall`). Nao considerar "fazer ligacao" como capacidade garantida ate confirmar endpoint oficial da versao instalada.
+```http
+POST /send/sticker
+```
+
+### Status
+
+Texto:
+
+```http
+POST /send/status/text
+```
+
+Payload:
+
+```json
+{
+  "text": "Bom dia"
+}
+```
+
+Midia:
+
+```http
+POST /send/status/media
+```
+
+Payload:
+
+```json
+{
+  "type": "image",
+  "url": "https://example.com/status.png",
+  "caption": "Legenda"
+}
+```
+
+Observacao importante:
+
+- `POST /message/status` na `evolution-go` e consulta de status de mensagem, nao envio de story/status.
 
 ## Webhooks
 
-Eventos minimos para habilitar:
+Eventos minimos para habilitar no loop reativo:
 
-- `CONNECTION_UPDATE`
-- `QRCODE_UPDATED`
-- `MESSAGES_UPSERT`
-- `MESSAGES_UPDATE`
-- `SEND_MESSAGE`
+- `messages.upsert`
+- `connection.update`
 
-O endpoint do backend:
-
-```http
-POST /webhooks/evolution
-```
-
-Deve validar assinatura/header compartilhado definido em `.env`, normalizar evento e persistir em `evolution_events`.
-
-## Redundancia
-
-Cada instancia pertence a uma Evolution API por vez:
-
-- `instances.evolution_server_id` define a API ativa.
-- `evolution_servers.health_status` define se a API pode receber novas execucoes.
-- Se uma API cair, o backend pausa execucoes das instancias afetadas.
-- Recriacao/migracao automatica de instancia entre Evolution APIs deve ser uma politica explicita, pois pode exigir novo QR/pairing.
+O backend continua normalizando esses eventos para o contrato interno do aquecedor antes de passar por `evolutionsync`, `conversationloop`, `scheduler`, `queue` e `worker`.

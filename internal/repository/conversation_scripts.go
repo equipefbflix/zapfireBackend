@@ -47,6 +47,15 @@ type CreateConversationStepParams struct {
 	MaxDelaySeconds int
 }
 
+type UpdateConversationScriptParams struct {
+	Name            string
+	Category        string
+	Enabled         bool
+	Weight          int
+	MinWarmingScore float64
+	MaxWarmingScore float64
+}
+
 type ConversationScriptRepository struct {
 	db Executor
 }
@@ -92,6 +101,39 @@ order by category asc, name asc
 		return nil, fmt.Errorf("iterate conversation scripts: %w", err)
 	}
 	return scripts, nil
+}
+
+func (r ConversationScriptRepository) GetByID(ctx context.Context, id string) (ConversationScript, error) {
+	row := r.db.QueryRow(ctx, `
+select id::text, name, category, enabled, weight, min_warming_score::float8, max_warming_score::float8
+from public.conversation_scripts
+where id = $1::uuid
+`, id)
+	script, err := scanConversationScript(row)
+	if err != nil {
+		return ConversationScript{}, fmt.Errorf("get conversation script by id: %w", err)
+	}
+	return script, nil
+}
+
+func (r ConversationScriptRepository) Update(ctx context.Context, id string, params UpdateConversationScriptParams) (ConversationScript, error) {
+	row := r.db.QueryRow(ctx, `
+update public.conversation_scripts
+set name = $2,
+    category = $3,
+    enabled = $4,
+    weight = $5,
+    min_warming_score = $6,
+    max_warming_score = $7,
+    updated_at = now()
+where id = $1::uuid
+returning id::text, name, category, enabled, weight, min_warming_score::float8, max_warming_score::float8
+`, id, params.Name, params.Category, params.Enabled, params.Weight, params.MinWarmingScore, params.MaxWarmingScore)
+	script, err := scanConversationScript(row)
+	if err != nil {
+		return ConversationScript{}, fmt.Errorf("update conversation script: %w", err)
+	}
+	return script, nil
 }
 
 func (r ConversationScriptRepository) DeleteByName(ctx context.Context, name string) (int64, error) {
@@ -156,6 +198,17 @@ order by step_order asc
 		return nil, fmt.Errorf("iterate conversation steps: %w", err)
 	}
 	return steps, nil
+}
+
+func (r ConversationStepRepository) DeleteByScriptID(ctx context.Context, scriptID string) (int64, error) {
+	tag, err := r.db.Exec(ctx, `
+delete from public.conversation_steps
+where script_id = $1::uuid
+`, scriptID)
+	if err != nil {
+		return 0, fmt.Errorf("delete conversation steps by script id: %w", err)
+	}
+	return tag.RowsAffected, nil
 }
 
 func scanConversationScript(row Row) (ConversationScript, error) {

@@ -26,6 +26,16 @@ type CreateStepParams struct {
 	MaxDelaySeconds int
 }
 
+type UpdateScriptParams struct {
+	Name            string
+	Category        string
+	Enabled         bool
+	Weight          int
+	MinWarmingScore float64
+	MaxWarmingScore float64
+	Steps           []CreateStepParams
+}
+
 type ScriptWithSteps struct {
 	Script repository.ConversationScript
 	Steps  []repository.ConversationStep
@@ -34,11 +44,14 @@ type ScriptWithSteps struct {
 type ScriptStore interface {
 	Create(ctx context.Context, params repository.CreateConversationScriptParams) (repository.ConversationScript, error)
 	List(ctx context.Context) ([]repository.ConversationScript, error)
+	GetByID(ctx context.Context, id string) (repository.ConversationScript, error)
+	Update(ctx context.Context, id string, params repository.UpdateConversationScriptParams) (repository.ConversationScript, error)
 }
 
 type StepStore interface {
 	Create(ctx context.Context, params repository.CreateConversationStepParams) (repository.ConversationStep, error)
 	ListByScriptID(ctx context.Context, scriptID string) ([]repository.ConversationStep, error)
+	DeleteByScriptID(ctx context.Context, scriptID string) (int64, error)
 }
 
 type Service struct {
@@ -112,4 +125,67 @@ func (s Service) List(ctx context.Context) ([]ScriptWithSteps, error) {
 		items = append(items, ScriptWithSteps{Script: script, Steps: steps})
 	}
 	return items, nil
+}
+
+func (s Service) GetByID(ctx context.Context, id string) (ScriptWithSteps, error) {
+	script, err := s.scripts.GetByID(ctx, id)
+	if err != nil {
+		return ScriptWithSteps{}, err
+	}
+	steps, err := s.steps.ListByScriptID(ctx, script.ID)
+	if err != nil {
+		return ScriptWithSteps{}, err
+	}
+	return ScriptWithSteps{Script: script, Steps: steps}, nil
+}
+
+func (s Service) Update(ctx context.Context, id string, params UpdateScriptParams) (ScriptWithSteps, error) {
+	if params.Weight <= 0 {
+		params.Weight = 1
+	}
+	if params.MaxWarmingScore <= 0 {
+		params.MaxWarmingScore = 100
+	}
+
+	script, err := s.scripts.Update(ctx, id, repository.UpdateConversationScriptParams{
+		Name:            params.Name,
+		Category:        params.Category,
+		Enabled:         params.Enabled,
+		Weight:          params.Weight,
+		MinWarmingScore: params.MinWarmingScore,
+		MaxWarmingScore: params.MaxWarmingScore,
+	})
+	if err != nil {
+		return ScriptWithSteps{}, err
+	}
+
+	if _, err := s.steps.DeleteByScriptID(ctx, id); err != nil {
+		return ScriptWithSteps{}, err
+	}
+
+	createdSteps := make([]repository.ConversationStep, 0, len(params.Steps))
+	for _, step := range params.Steps {
+		if step.MinDelaySeconds <= 0 {
+			step.MinDelaySeconds = 10
+		}
+		if step.MaxDelaySeconds <= 0 {
+			step.MaxDelaySeconds = 120
+		}
+		created, err := s.steps.Create(ctx, repository.CreateConversationStepParams{
+			ScriptID:        script.ID,
+			StepOrder:       step.StepOrder,
+			SenderRole:      step.SenderRole,
+			ActionType:      step.ActionType,
+			TemplateID:      step.TemplateID,
+			Payload:         step.Payload,
+			MinDelaySeconds: step.MinDelaySeconds,
+			MaxDelaySeconds: step.MaxDelaySeconds,
+		})
+		if err != nil {
+			return ScriptWithSteps{}, err
+		}
+		createdSteps = append(createdSteps, created)
+	}
+
+	return ScriptWithSteps{Script: script, Steps: createdSteps}, nil
 }

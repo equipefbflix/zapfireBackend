@@ -116,6 +116,8 @@ func TestWarmingJobRunnerResolvesPayloadPlaceholders(t *testing.T) {
 		}},
 		&fakeRunnerExecutionLogStore{},
 		&fakeConcurrencyGate{},
+		nil,
+		nil,
 	)
 
 	if _, err := runner.Run(context.Background(), "job-id"); err != nil {
@@ -249,6 +251,8 @@ func TestWarmingJobRunnerExecutesStepsAndLogsSuccess(t *testing.T) {
 		}},
 		logStore,
 		gate,
+		nil,
+		nil,
 	)
 
 	executed, err := runner.Run(context.Background(), "job-id")
@@ -300,6 +304,8 @@ func TestWarmingJobRunnerLogsFailure(t *testing.T) {
 		}},
 		logStore,
 		&fakeConcurrencyGate{},
+		nil,
+		nil,
 	)
 
 	_, err := runner.Run(context.Background(), "job-id")
@@ -330,6 +336,8 @@ func TestWarmingJobRunnerMarksFailedWhenInstanceLookupFails(t *testing.T) {
 		fakeRunnerExecutorFactory{},
 		&fakeRunnerExecutionLogStore{},
 		&fakeConcurrencyGate{},
+		nil,
+		nil,
 	)
 
 	_, err := runner.Run(context.Background(), "job-id")
@@ -355,6 +363,8 @@ func TestWarmingJobRunnerSkipsAlreadySuccessfulStep(t *testing.T) {
 		fakeRunnerExecutorFactory{byInstance: map[string]*fakeRunnerStepExecutor{"instance-a-id": stepExecutor, "instance-b-id": {}}},
 		logStore,
 		&fakeConcurrencyGate{},
+		nil,
+		nil,
 	)
 
 	executed, err := runner.Run(context.Background(), "job-id")
@@ -398,6 +408,8 @@ func TestWarmingJobRunnerLogsAsyncAcceptedStatus(t *testing.T) {
 		}},
 		logStore,
 		&fakeConcurrencyGate{},
+		nil,
+		nil,
 	)
 
 	// swap explicit executor with async behavior for instance A
@@ -460,6 +472,8 @@ func TestWarmingJobRunnerBlocksWhenConcurrencyGateFails(t *testing.T) {
 		}},
 		&fakeRunnerExecutionLogStore{},
 		gate,
+		nil,
+		nil,
 	)
 
 	_, err := runner.Run(context.Background(), "job-id")

@@ -30,6 +30,26 @@ func (d amqpIntegrationDelivery) Nack(requeue bool) error {
 }
 func (d amqpIntegrationDelivery) Attempt() int { return 1 }
 
+type testRunFilteredDueJobStore struct {
+	repo      repository.WarmingJobRepository
+	testRunID string
+}
+
+func (s testRunFilteredDueJobStore) ListDuePending(ctx context.Context, now time.Time, limit int) ([]repository.WarmingJob, error) {
+	items, err := s.repo.ListDuePending(ctx, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]repository.WarmingJob, 0, len(items))
+	for _, item := range items {
+		value, _ := item.Metadata["testRunId"].(string)
+		if value == s.testRunID {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
+}
+
 func TestRabbitMQLocalRealFlow(t *testing.T) {
 	if os.Getenv("ENABLE_REAL_TESTS") != "true" {
 		t.Skip("set ENABLE_REAL_TESTS=true to run real database integration tests")
@@ -65,11 +85,12 @@ func TestRabbitMQLocalRealFlow(t *testing.T) {
 	}
 	defer broker.Close()
 
+	topologySuffix := sanitizeQueueSuffix(testRunID)
 	topology := queue.DefaultTopology(queue.TopologyConfig{
-		Exchange:             "aquecedor.events",
-		WarmingJobsQueue:     "aquecedor.warming.jobs",
-		EvolutionEventsQueue: "aquecedor.evolution.events",
-		DeadLetterQueue:      "aquecedor.dead_letter",
+		Exchange:             "aquecedor.test." + topologySuffix + ".events",
+		WarmingJobsQueue:     "aquecedor.test." + topologySuffix + ".warming.jobs",
+		EvolutionEventsQueue: "aquecedor.test." + topologySuffix + ".evolution.events",
+		DeadLetterQueue:      "aquecedor.test." + topologySuffix + ".dead_letter",
 	})
 	if err := queue.DeclareTopology(ctx, broker, topology); err != nil {
 		t.Fatalf("DeclareTopology() error = %v", err)
@@ -152,7 +173,10 @@ where phone_e164 in ('5519989411105','5519995081355')
 	}
 
 	publisher := queue.NewPublisher(broker, topology.Exchange.Name)
-	s := schedulerpkg.NewWarmingJobScheduler(jobs, publisher, 10)
+	s := schedulerpkg.NewWarmingJobScheduler(testRunFilteredDueJobStore{
+		repo:      jobs,
+		testRunID: testRunID,
+	}, publisher, 10)
 	published, err := s.PublishDue(ctx, time.Now().UTC())
 	if err != nil {
 		t.Fatalf("PublishDue() error = %v", err)
@@ -215,4 +239,21 @@ func (localRabbitSecretResolver) Resolve(secretName string) string {
 		return os.Getenv("AUTHENTICATION_API_KEY")
 	}
 	return value
+}
+
+func sanitizeQueueSuffix(value string) string {
+	result := make([]rune, 0, len(value))
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			result = append(result, r)
+		case r >= 'A' && r <= 'Z':
+			result = append(result, r+('a'-'A'))
+		case r >= '0' && r <= '9':
+			result = append(result, r)
+		default:
+			result = append(result, '.')
+		}
+	}
+	return string(result)
 }

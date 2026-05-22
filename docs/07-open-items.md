@@ -2,33 +2,26 @@
 
 ## Estado atual do Supabase
 
-O projeto Supabase alvo atual e `rxdophybnwoocsdyxyjm`.
+O projeto Supabase alvo atual e `cqmxcsmpdshuncupcwaw`.
 
-Verificacao em 2026-04-30:
+Verificacao consolidada ate 2026-05-13:
 
-- Em 2026-05-04, o MCP foi configurado como global, sem `project_ref`.
-- As operacoes agora precisam receber `project_id = rxdophybnwoocsdyxyjm` quando a ferramenta exigir.
-- `list_projects` lista todos os projetos da conta, incluindo `Zap Fire` (`rxdophybnwoocsdyxyjm`).
-- O schema do aquecedor foi aplicado no projeto correto.
-- O schema aplicado anteriormente no projeto errado `cqmxcsmpdshuncupcwaw` foi removido; la sobraram apenas as tabelas preexistentes.
+- o MCP resolve o projeto correto;
+- o schema real esta documentado em `03-supabase-schema.md`;
+- o backend usa `DATABASE_URL` para runtime real;
+- os testes reais de banco seguem usando `testRunId` e cleanup ao final.
 
-Chamadas testadas contra `rxdophybnwoocsdyxyjm`:
+Chamadas MCP ja validadas contra `cqmxcsmpdshuncupcwaw`:
 
 - `get_project_url`
 - `list_tables`
 - `list_migrations`
 - `execute_sql`
-- `get_logs(service=postgres)`
-- `get_advisors(type=security)`
-- `list_extensions`
-- `get_publishable_keys`
 
-Resultado:
+Regra operacional:
 
-- MCP funcional.
-- Schema real listado em `03-supabase-schema.md`.
-- `public` continha tabelas existentes `profiles`, `plans`, `subscriptions` e `messages` antes do aquecedor.
-- Nao registrar chaves retornadas por `get_publishable_keys` em arquivos versionaveis.
+- nao registrar chaves ou tokens retornados por MCP em arquivos versionaveis;
+- antes de qualquer migration nova, reler o schema real e confirmar o `project_ref`.
 
 ## Confirmacoes pendentes
 
@@ -43,13 +36,11 @@ Resultado:
 
 ## Proximo passo tecnico recomendado
 
-1. Validar RabbitMQ real com `RABBITMQ_URL`, publicacao, consumo e `ack`.
-2. Fechar `send_status` como operacao confiavel no backend. As demais actions novas do MVP ja foram validadas em instancia conectada real.
-3. Criar E2E real do scheduler/worker consumindo fila e gravando `execution_logs`.
-4. Validar webhook sync com eventos reais de instancia conectada.
-5. Expandir planner real de conversas com frequencia por numero, janela de negocio e historico mais rico.
-6. Validar integration real de dead-letter quando houver broker acessivel nesta sessao.
-7. Expandir logs estruturados de publish/consume quando o broker externo estiver operando.
+1. Validar webhook sync com eventos reais de instancia conectada em rotina repetivel, nao apenas execucao pontual.
+2. Expandir planner real de conversas com frequencia por numero, janela de negocio e historico mais rico.
+3. Validar integration real de dead-letter com cenario de falha controlada.
+4. Expandir logs estruturados de publish/consume e correlacao entre `warming_jobs` e `execution_logs`.
+5. Cobrir na UI os recursos de observabilidade e stale cleanup que ainda estao so no backend.
 
 ## Atualizacao em 2026-05-05
 
@@ -63,11 +54,10 @@ Concluido:
 
 Ainda pendente para fechamento operacional:
 
-- validacao real do dead-letter em broker acessivel
-- RabbitMQ externo real
-- E2E externo completo `scheduler -> queue -> worker -> runner`
+- validacao real do dead-letter em cenario induzido
 - correlacao mais rica de `send_status` por webhook, caso a Evolution passe a expor identificador retornavel
-- RabbitMQ externo real
+- automacao repetivel do loop reativo ponta a ponta com webhook publico e instancias dedicadas de QA
+- validacao operacional externa com webhook publico continua manual; a cobertura automatizada agora usa a rota real via `httptest` e RabbitMQ local isolado
 
 Atualizacao em 2026-05-05:
 
@@ -76,15 +66,18 @@ Atualizacao em 2026-05-05:
 - fluxo real `route -> runner -> Evolution -> webhook -> Supabase` validado
 - loop reativo `webhook inbound -> planner -> warming_job -> scheduler -> worker` validado com RabbitMQ local
 - `cmd/scheduler` implementado e validado em runtime local
+- `TestRabbitMQLocalRealFlow` passou com RabbitMQ local real em 2026-05-13
+- `TestReactiveLoopRealE2E` passou em 2026-05-13 validando `webhook -> job -> queue -> worker -> runner -> execution_logs`
 - placeholders `{{phoneA}}`, `{{phoneB}}`, `{{triggerMessageId}}` e `{{triggerRemoteJid}}` implementados no runner
 - `send_typing` validado em job real
 - `send_reply`, `send_reaction`, `send_audio` e `send_recording` validados em job real
 - `send_status` validado em job real com aceite assíncrono controlado
 - observabilidade minima e cleanup de jobs stale validados com banco real
+- `Service.SyncState` validado contra Evolution real em `TestServiceSyncStateRealEvolutionInstanceE2E`
 
 ## Criterio para desbloquear
 
-Estas chamadas MCP ja funcionam para `rxdophybnwoocsdyxyjm`:
+Estas chamadas MCP ja funcionam para `cqmxcsmpdshuncupcwaw`:
 
 - `get_project_url`
 - `list_tables`
@@ -97,16 +90,16 @@ Para aplicar schema ou migrations pelo MCP, usar `apply_migration` com `project_
 
 ## RabbitMQ de teste
 
-Credenciais de teste foram fornecidas fora da documentacao versionavel. O backend espera receber `RABBITMQ_URL` por ambiente.
+Credenciais de teste devem ficar fora da documentacao versionavel. O backend espera receber `RABBITMQ_URL` por ambiente.
 
 Validacao executada:
 
 - Teste unitario de config/topologia/publisher passou.
 - Teste real `go test -tags=integration ./internal/queue -run TestRabbitMQPublishConsumeReal -v` foi criado.
 - Teste equivalente passou contra RabbitMQ local descartavel em Docker.
-- A tentativa real falhou por timeout TCP em `rabbitmq.askgeni.us:5672`.
+- `TestRabbitMQLocalRealFlow` passou contra `amqp://guest:guest@127.0.0.1:5672/` em 2026-05-13.
 
-Para desbloquear o teste real, confirmar:
+Se voltar a validar broker externo, confirmar:
 
 - host e porta AMQP expostos;
 - se usa `amqp://` na porta `5672` ou `amqps://` na porta `5671`;

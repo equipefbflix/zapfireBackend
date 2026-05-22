@@ -9,6 +9,8 @@ type PlannerConfig struct {
 	WindowEndHour                    int
 	MaxRunningJobsPerPair            int
 	MaxRunningJobsPerEvolutionServer int
+	MaxDailyMessagesPerNumber        int
+	MaxPairDailyMessages             int
 }
 
 func LoadPlannerConfig() PlannerConfig {
@@ -21,5 +23,7 @@ func LoadPlannerConfig() PlannerConfig {
 		WindowEndHour:                    envInt("WARMING_WINDOW_END_HOUR", 22),
 		MaxRunningJobsPerPair:            envInt("WARMING_MAX_RUNNING_JOBS_PER_PAIR", 1),
 		MaxRunningJobsPerEvolutionServer: envInt("WARMING_MAX_RUNNING_JOBS_PER_EVOLUTION_SERVER", 5),
+		MaxDailyMessagesPerNumber:        envInt("WARMING_MAX_DAILY_MESSAGES_PER_NUMBER", 30),
+		MaxPairDailyMessages:             envInt("WARMING_MAX_PAIR_DAILY_MESSAGES", 8),
 	}
 }

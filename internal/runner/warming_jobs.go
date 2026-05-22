@@ -28,6 +28,10 @@ type ExecutionLogStore interface {
 	ExistsSuccessfulStep(ctx context.Context, warmingJobID string, stepID string) (bool, error)
 }
 
+type DailyMessageIncrementer interface {
+	IncrementDailyMessageCount(ctx context.Context, phoneNumberID string) (int, error)
+}
+
 type WarmingJobRunner struct {
 	jobs          JobStore
 	steps         StepStore
@@ -35,13 +39,19 @@ type WarmingJobRunner struct {
 	executors     InstanceStepExecutorFactory
 	executionLogs ExecutionLogStore
 	concurrency   ConcurrencyGate
+	dailyLimit    DailyLimitGate
+	incrementer   DailyMessageIncrementer
 }
 
 type ConcurrencyGate interface {
 	Check(ctx context.Context, serverID string, phoneAID string, phoneBID string) error
 }
 
-func NewWarmingJobRunner(jobs JobStore, steps StepStore, instances InstanceStore, executors InstanceStepExecutorFactory, executionLogs ExecutionLogStore, concurrency ConcurrencyGate) WarmingJobRunner {
+type DailyLimitGate interface {
+	Check(ctx context.Context, phoneAID string, phoneBID string) error
+}
+
+func NewWarmingJobRunner(jobs JobStore, steps StepStore, instances InstanceStore, executors InstanceStepExecutorFactory, executionLogs ExecutionLogStore, concurrency ConcurrencyGate, dailyLimit DailyLimitGate, incrementer DailyMessageIncrementer) WarmingJobRunner {
 	return WarmingJobRunner{
 		jobs:          jobs,
 		steps:         steps,
@@ -49,6 +59,8 @@ func NewWarmingJobRunner(jobs JobStore, steps StepStore, instances InstanceStore
 		executors:     executors,
 		executionLogs: executionLogs,
 		concurrency:   concurrency,
+		dailyLimit:    dailyLimit,
+		incrementer:   incrementer,
 	}
 }
 
@@ -95,6 +107,13 @@ func (r WarmingJobRunner) Run(ctx context.Context, jobID string) (int, error) {
 			return 0, err
 		}
 	}
+	if r.dailyLimit != nil {
+		if err := r.dailyLimit.Check(ctx, job.PhoneAID, job.PhoneBID); err != nil {
+			_ = r.jobs.UpdateStatus(ctx, job.ID, "skipped", err.Error())
+			slog.Warn("warming job daily limit blocked", "jobId", job.ID, "error", err)
+			return 0, err
+		}
+	}
 	_ = r.jobs.UpdateStatus(ctx, job.ID, "running", "")
 	executorA, err := r.executors.ForInstance(ctx, instanceA)
 	if err != nil {
@@ -134,6 +153,17 @@ func (r WarmingJobRunner) Run(ctx context.Context, jobID string) (int, error) {
 		if _, err := r.executionLogs.Create(ctx, r.logParams(job, instance, resolvedStep, "success", result.MessageKey, result.ResponsePayload, "")); err != nil {
 			slog.Error("warming job log create failed", "jobId", job.ID, "stepId", step.ID, "error", err)
 			return index, err
+		}
+		if r.incrementer != nil && isMessageAction(step.ActionType) {
+			senderPhoneID := job.PhoneAID
+			if step.SenderRole == "b" {
+				senderPhoneID = job.PhoneBID
+			}
+			if newCount, err := r.incrementer.IncrementDailyMessageCount(ctx, senderPhoneID); err != nil {
+				slog.Error("warming job increment daily count failed", "jobId", job.ID, "phoneNumberId", senderPhoneID, "error", err)
+			} else {
+				slog.Info("warming job daily count incremented", "jobId", job.ID, "phoneNumberId", senderPhoneID, "newCount", newCount)
+			}
 		}
 		slog.Info("warming job step finished",
 			"jobId", job.ID,
@@ -277,4 +307,13 @@ func executorForStep(step repository.ConversationStep, executorA *executor.StepE
 		return executorB
 	}
 	return executorA
+}
+
+func isMessageAction(actionType string) bool {
+	switch actionType {
+	case "send_text", "send_reply", "send_audio", "send_media", "send_status", "send_sticker", "send_reaction":
+		return true
+	default:
+		return false
+	}
 }

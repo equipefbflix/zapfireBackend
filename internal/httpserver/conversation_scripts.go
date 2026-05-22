@@ -55,6 +55,8 @@ type listConversationScriptsResponse struct {
 	Items []conversationScriptResponse `json:"items"`
 }
 
+type updateConversationScriptRequest = createConversationScriptRequest
+
 func (s *Server) handleCreateConversationScript(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.ConversationScripts == nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "conversation script store is not configured"})
@@ -144,6 +146,95 @@ func (s *Server) handleListConversationScripts(w http.ResponseWriter, r *http.Re
 		response.Items = append(response.Items, newConversationScriptResponse(item))
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleGetConversationScript(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.ConversationScripts == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "conversation script store is not configured"})
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+	item, err := s.cfg.ConversationScripts.GetByID(r.Context(), id)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to get conversation script"})
+		return
+	}
+	writeJSON(w, http.StatusOK, newConversationScriptResponse(item))
+}
+
+func (s *Server) handleUpdateConversationScript(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.ConversationScripts == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "conversation script store is not configured"})
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+	var request updateConversationScriptRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid json body"})
+		return
+	}
+	if request.Name == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "name is required"})
+		return
+	}
+	if request.Category == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "category is required"})
+		return
+	}
+	if len(request.Steps) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "steps are required"})
+		return
+	}
+	steps := make([]conversation.CreateStepParams, 0, len(request.Steps))
+	for _, step := range request.Steps {
+		if step.StepOrder <= 0 {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "stepOrder must be greater than zero"})
+			return
+		}
+		if step.SenderRole == "" {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "senderRole is required"})
+			return
+		}
+		if step.ActionType == "" {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "actionType is required"})
+			return
+		}
+		payload := step.Payload
+		if payload == nil {
+			payload = map[string]any{}
+		}
+		steps = append(steps, conversation.CreateStepParams{
+			StepOrder:       step.StepOrder,
+			SenderRole:      step.SenderRole,
+			ActionType:      step.ActionType,
+			TemplateID:      step.TemplateID,
+			Payload:         payload,
+			MinDelaySeconds: step.MinDelaySeconds,
+			MaxDelaySeconds: step.MaxDelaySeconds,
+		})
+	}
+	item, err := s.cfg.ConversationScripts.Update(r.Context(), id, conversation.UpdateScriptParams{
+		Name:            request.Name,
+		Category:        request.Category,
+		Enabled:         request.Enabled,
+		Weight:          request.Weight,
+		MinWarmingScore: request.MinWarmingScore,
+		MaxWarmingScore: request.MaxWarmingScore,
+		Steps:           steps,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to update conversation script"})
+		return
+	}
+	writeJSON(w, http.StatusOK, newConversationScriptResponse(item))
 }
 
 func newConversationScriptResponse(item conversation.ScriptWithSteps) conversationScriptResponse {

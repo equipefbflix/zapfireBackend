@@ -65,11 +65,14 @@ func run() error {
 
 	executor := repository.NewPgxExecutor(pool)
 	jobRepo := repository.NewWarmingJobRepository(executor)
+	phoneRepo := repository.NewPhoneNumberRepository(executor)
 	publisher := queue.NewPublisher(broker, topology.Exchange.Name)
 	scheduler := schedulerpkg.NewWarmingJobScheduler(jobRepo, publisher, 100)
 
 	ticker := time.NewTicker(schedulerConfig.TickInterval)
 	defer ticker.Stop()
+
+	lastResetDate := time.Now().UTC().Format("2006-01-02")
 
 	slog.Info("scheduler publishing due jobs", "tickInterval", schedulerConfig.TickInterval)
 	if err := publishOnce(ctx, scheduler, rabbitConfig.PublishTimeout); err != nil {
@@ -81,6 +84,18 @@ func run() error {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			currentDate := time.Now().UTC().Format("2006-01-02")
+			if currentDate != lastResetDate {
+				runCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				resetCount, err := phoneRepo.ResetDailyMessageCounts(runCtx)
+				cancel()
+				if err != nil {
+					slog.Error("daily message count reset failed", "error", err)
+				} else if resetCount > 0 {
+					slog.Info("daily message counts reset", "phonesReset", resetCount)
+				}
+				lastResetDate = currentDate
+			}
 			if err := publishOnce(ctx, scheduler, rabbitConfig.PublishTimeout); err != nil {
 				slog.Error("scheduler publish failed", "error", err)
 			}

@@ -118,3 +118,51 @@ func TestInstanceRepositoryGetByInstanceName(t *testing.T) {
 		t.Fatalf("instance name arg = %v", db.lastArgs[0])
 	}
 }
+
+func TestInstanceRepositoryGetByID(t *testing.T) {
+	db := &fakeExecutor{
+		row: fakeRow{values: []any{
+			"instance-id",
+			"phone-id",
+			"server-id",
+			nil,
+			"chip-phone",
+			"evo-instance-id",
+			"INSTANCE_API_KEY",
+			"open",
+			[]byte(`{"testRunId":"test-run"}`),
+		}},
+	}
+	repo := NewInstanceRepository(db)
+
+	instance, err := repo.GetByID(context.Background(), "instance-id")
+	if err != nil {
+		t.Fatalf("GetByID() error = %v", err)
+	}
+	if instance.ID != "instance-id" {
+		t.Fatalf("ID = %q", instance.ID)
+	}
+	if db.lastArgs[0] != "instance-id" {
+		t.Fatalf("instance id arg = %v", db.lastArgs[0])
+	}
+}
+
+func TestInstanceRepositoryList(t *testing.T) {
+	db := &fakeExecutor{
+		rows: fakeRows{values: [][]any{
+			{"instance-id", "phone-id", "server-id", nil, "chip-phone", "evo-instance-id", "INSTANCE_API_KEY", "open", []byte(`{"testRunId":"test-run"}`)},
+		}},
+	}
+	repo := NewInstanceRepository(db)
+
+	items, err := repo.List(context.Background())
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items len = %d", len(items))
+	}
+	if items[0].InstanceName != "chip-phone" {
+		t.Fatalf("InstanceName = %q", items[0].InstanceName)
+	}
+}

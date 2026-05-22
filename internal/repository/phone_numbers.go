@@ -6,18 +6,26 @@ import (
 	"time"
 )
 
+const (
+	PhoneTypeHeater = "heater"
+	PhoneTypeTarget = "target"
+)
+
 type PhoneNumber struct {
-	ID           string
-	PhoneE164    string
-	Label        string
-	Status       string
-	WarmingScore float64
-	Metadata     map[string]any
+	ID               string
+	PhoneE164        string
+	Label            string
+	Type             string
+	Status           string
+	WarmingScore     float64
+	ConnectionStatus string
+	Metadata         map[string]any
 }
 
 type CreatePhoneNumberParams struct {
 	PhoneE164 string
 	Label     string
+	Type      *string
 	Metadata  map[string]any
 }
 
@@ -50,11 +58,16 @@ func (r PhoneNumberRepository) Create(ctx context.Context, params CreatePhoneNum
 		return PhoneNumber{}, err
 	}
 
+	phoneType := PhoneTypeTarget
+	if params.Type != nil {
+		phoneType = *params.Type
+	}
+
 	row := r.db.QueryRow(ctx, `
-insert into public.phone_numbers (phone_e164, label, metadata)
-values ($1, $2, $3::jsonb)
-returning id::text, phone_e164, coalesce(label, ''), status::text, warming_score::float8, metadata::text::bytea
-`, params.PhoneE164, params.Label, metadata)
+insert into public.phone_numbers (phone_e164, label, type, metadata)
+values ($1, $2, $3::public.phone_type, $4::jsonb)
+returning id::text, phone_e164, coalesce(label, ''), type::text, status::text, warming_score::float8, coalesce(null::text, ''), metadata::text::bytea
+`, params.PhoneE164, params.Label, phoneType, metadata)
 
 	phone, err := scanPhoneNumber(row)
 	if err != nil {
@@ -65,9 +78,16 @@ returning id::text, phone_e164, coalesce(label, ''), status::text, warming_score
 
 func (r PhoneNumberRepository) GetByID(ctx context.Context, id string) (PhoneNumber, error) {
 	row := r.db.QueryRow(ctx, `
-select id::text, phone_e164, coalesce(label, ''), status::text, warming_score::float8, metadata::text::bytea
-from public.phone_numbers
-where id = $1
+select pn.id::text, pn.phone_e164, coalesce(pn.label, ''), pn.type::text, pn.status::text, pn.warming_score::float8, coalesce(i.status::text, '')::text, pn.metadata::text::bytea
+from public.phone_numbers pn
+left join lateral (
+  select i.status
+  from public.instances i
+  where i.phone_number_id = pn.id
+  order by i.created_at desc
+  limit 1
+) i on true
+where pn.id = $1
 `, id)
 
 	phone, err := scanPhoneNumber(row)
@@ -79,9 +99,16 @@ where id = $1
 
 func (r PhoneNumberRepository) FindByE164(ctx context.Context, phoneE164 string) (*PhoneNumber, error) {
 	row := r.db.QueryRow(ctx, `
-select id::text, phone_e164, coalesce(label, ''), status::text, warming_score::float8, metadata::text::bytea
-from public.phone_numbers
-where phone_e164 = $1
+select pn.id::text, pn.phone_e164, coalesce(pn.label, ''), pn.type::text, pn.status::text, pn.warming_score::float8, coalesce(i.status::text, '')::text, pn.metadata::text::bytea
+from public.phone_numbers pn
+left join lateral (
+  select i.status
+  from public.instances i
+  where i.phone_number_id = pn.id
+  order by i.created_at desc
+  limit 1
+) i on true
+where pn.phone_e164 = $1
 limit 1
 `, phoneE164)
 
@@ -97,12 +124,52 @@ limit 1
 
 func (r PhoneNumberRepository) List(ctx context.Context) ([]PhoneNumber, error) {
 	rows, err := r.db.Query(ctx, `
-select id::text, phone_e164, coalesce(label, ''), status::text, warming_score::float8, metadata::text::bytea
-from public.phone_numbers
-order by created_at desc
+select pn.id::text, pn.phone_e164, coalesce(pn.label, ''), pn.type::text, pn.status::text, pn.warming_score::float8, coalesce(i.status::text, '')::text, pn.metadata::text::bytea
+from public.phone_numbers pn
+left join lateral (
+  select i.status
+  from public.instances i
+  where i.phone_number_id = pn.id
+  order by i.created_at desc
+  limit 1
+) i on true
+order by pn.created_at desc
 `)
 	if err != nil {
 		return nil, fmt.Errorf("list phone numbers: %w", err)
+	}
+	defer rows.Close()
+
+	var phones []PhoneNumber
+	for rows.Next() {
+		phone, err := scanPhoneNumber(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan phone number: %w", err)
+		}
+		phones = append(phones, phone)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate phone numbers: %w", err)
+	}
+	return phones, nil
+}
+
+func (r PhoneNumberRepository) ListByType(ctx context.Context, phoneType string) ([]PhoneNumber, error) {
+	rows, err := r.db.Query(ctx, `
+select pn.id::text, pn.phone_e164, coalesce(pn.label, ''), pn.type::text, pn.status::text, pn.warming_score::float8, coalesce(i.status::text, '')::text, pn.metadata::text::bytea
+from public.phone_numbers pn
+left join lateral (
+  select i.status
+  from public.instances i
+  where i.phone_number_id = pn.id
+  order by i.created_at desc
+  limit 1
+) i on true
+where pn.type = $1::public.phone_type
+order by pn.created_at desc
+`, phoneType)
+	if err != nil {
+		return nil, fmt.Errorf("list phone numbers by type: %w", err)
 	}
 	defer rows.Close()
 
@@ -159,7 +226,7 @@ set label = coalesce($2, label),
     metadata = coalesce($4::jsonb, metadata),
     updated_at = now()
 where id = $1
-returning id::text, phone_e164, coalesce(label, ''), status::text, warming_score::float8, metadata::text::bytea
+returning id::text, phone_e164, coalesce(label, ''), type::text, status::text, warming_score::float8, coalesce((select status::text from public.instances where phone_number_id = $1 order by created_at desc limit 1), ''), metadata::text::bytea
 `, id, params.Label, params.Status, metadata)
 
 	phone, err := scanPhoneNumber(row)
@@ -180,6 +247,47 @@ where id = $1
 	return nil
 }
 
+func (r PhoneNumberRepository) GetDailyMessageCount(ctx context.Context, phoneNumberID string) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `
+select coalesce(daily_message_count, 0)
+from public.phone_numbers
+where id = $1
+`, phoneNumberID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("get daily message count: %w", err)
+	}
+	return count, nil
+}
+
+func (r PhoneNumberRepository) IncrementDailyMessageCount(ctx context.Context, phoneNumberID string) (int, error) {
+	var count int
+	err := r.db.QueryRow(ctx, `
+update public.phone_numbers
+set daily_message_count = coalesce(daily_message_count, 0) + 1,
+    updated_at = now()
+where id = $1
+returning coalesce(daily_message_count, 0)
+`, phoneNumberID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("increment daily message count: %w", err)
+	}
+	return count, nil
+}
+
+func (r PhoneNumberRepository) ResetDailyMessageCounts(ctx context.Context) (int64, error) {
+	tag, err := r.db.Exec(ctx, `
+update public.phone_numbers
+set daily_message_count = 0,
+    updated_at = now()
+where daily_message_count > 0
+`)
+	if err != nil {
+		return 0, fmt.Errorf("reset daily message counts: %w", err)
+	}
+	return tag.RowsAffected, nil
+}
+
 func scanPhoneNumber(row Row) (PhoneNumber, error) {
 	var phone PhoneNumber
 	var metadata []byte
@@ -187,8 +295,10 @@ func scanPhoneNumber(row Row) (PhoneNumber, error) {
 		&phone.ID,
 		&phone.PhoneE164,
 		&phone.Label,
+		&phone.Type,
 		&phone.Status,
 		&phone.WarmingScore,
+		&phone.ConnectionStatus,
 		&metadata,
 	); err != nil {
 		return PhoneNumber{}, err

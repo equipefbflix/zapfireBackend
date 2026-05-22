@@ -71,6 +71,7 @@ func run() error {
 	instanceRepo := repository.NewInstanceRepository(executor)
 	executionLogRepo := repository.NewExecutionLogRepository(executor)
 	evolutionServerRepo := repository.NewEvolutionServerRepository(executor)
+	phoneRepo := repository.NewPhoneNumberRepository(executor)
 
 	instanceExecutors := runner.NewInstanceExecutorFactory(
 		evolutionServerRepo,
@@ -82,7 +83,12 @@ func run() error {
 		plannerConfig.MaxRunningJobsPerPair,
 		plannerConfig.MaxRunningJobsPerEvolutionServer,
 	)
-	jobRunner := runner.NewWarmingJobRunner(jobRepo, stepRepo, instanceRepo, instanceExecutors, executionLogRepo, concurrencyGate)
+	dailyLimitGate := runner.NewDailyLimitGate(
+		phoneRepo,
+		plannerConfig.MaxDailyMessagesPerNumber,
+		plannerConfig.MaxPairDailyMessages,
+	)
+	jobRunner := runner.NewWarmingJobRunner(jobRepo, stepRepo, instanceRepo, instanceExecutors, executionLogRepo, concurrencyGate, dailyLimitGate, phoneRepo)
 	jobWorker := worker.NewWarmingJobWorker(jobRunner)
 	consumer := queue.NewWarmingJobDueConsumer(jobWorker)
 

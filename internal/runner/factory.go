@@ -47,7 +47,12 @@ func (f instanceExecutorFactory) ForInstance(ctx context.Context, instance repos
 
 	apiKey := ""
 	if f.secrets != nil {
-		apiKey = f.secrets.Resolve(server.APIKeySecretName)
+		if instance.InstanceAPIKeySecretName != nil {
+			apiKey = f.secrets.Resolve(*instance.InstanceAPIKeySecretName)
+		}
+		if apiKey == "" {
+			apiKey = f.secrets.Resolve(server.APIKeySecretName)
+		}
 	}
 
 	client := f.clientFactory.New(server, apiKey)

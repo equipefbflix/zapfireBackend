@@ -46,6 +46,22 @@ func (s *fakePhoneNumberStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *fakePhoneNumberStore) GetByID(ctx context.Context, id string) (repository.PhoneNumber, error) {
+	return repository.PhoneNumber{
+		ID:               id,
+		PhoneE164:        "5511999999999",
+		Label:            "chip",
+		Status:           "warming",
+		WarmingScore:     42,
+		ConnectionStatus: "open",
+		Metadata:         map[string]any{},
+	}, nil
+}
+
+func (s *fakePhoneNumberStore) GetDailyMessageCount(ctx context.Context, phoneNumberID string) (int, error) {
+	return 0, nil
+}
+
 func TestCreatePhoneNumberRoute(t *testing.T) {
 	store := &fakePhoneNumberStore{}
 	server := NewServer(ServerConfig{PhoneNumbers: store})
@@ -161,5 +177,65 @@ func TestRestartPhoneNumberRoute(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestGetDailyLimitRoute(t *testing.T) {
+	server := NewServer(ServerConfig{
+		PhoneNumbers:        &fakePhoneNumberStore{},
+		DailyLimitPerNumber: 30,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/phone-numbers/phone-id/daily-limit", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+
+	var response dailyLimitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if response.PhoneNumberID != "phone-id" {
+		t.Fatalf("PhoneNumberID = %q", response.PhoneNumberID)
+	}
+	if response.DailyLimit != 30 {
+		t.Fatalf("DailyLimit = %d", response.DailyLimit)
+	}
+}
+
+func TestGetDailyLimitRouteDefaultsTo30(t *testing.T) {
+	server := NewServer(ServerConfig{
+		PhoneNumbers: &fakePhoneNumberStore{},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/phone-numbers/phone-id/daily-limit", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+
+	var response dailyLimitResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if response.DailyLimit != 30 {
+		t.Fatalf("DailyLimit = %d", response.DailyLimit)
+	}
+}
+
+func TestGetDailyLimitRouteRequiresConfig(t *testing.T) {
+	server := NewServer(ServerConfig{})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/phone-numbers/phone-id/daily-limit", nil)
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d", rec.Code)
 	}
 }

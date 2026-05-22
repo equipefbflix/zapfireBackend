@@ -21,6 +21,7 @@ func (EnvSecretResolver) Resolve(secretName string) string {
 type EvolutionClientFactory struct {
 	SecretResolver SecretResolver
 	Timeout        time.Duration
+	WebhookURL     string
 }
 
 func literalSecret(secretName string) (string, bool) {
@@ -29,13 +30,18 @@ func literalSecret(secretName string) (string, bool) {
 }
 
 func (f EvolutionClientFactory) New(server repository.EvolutionServer) EvolutionInstanceCreator {
-	var apiKey string
-	if f.SecretResolver != nil {
-		apiKey = f.SecretResolver.Resolve(server.APIKeySecretName)
+	return f.NewWithAPIKey(server, "")
+}
+
+func (f EvolutionClientFactory) NewWithAPIKey(server repository.EvolutionServer, apiKey string) EvolutionInstanceCreator {
+	resolvedAPIKey := apiKey
+	if strings.TrimSpace(resolvedAPIKey) == "" && f.SecretResolver != nil {
+		resolvedAPIKey = f.SecretResolver.Resolve(server.APIKeySecretName)
 	}
 	return evolution.NewClient(evolution.Config{
-		BaseURL: server.BaseURL,
-		APIKey:  apiKey,
-		Timeout: f.Timeout,
+		BaseURL:    server.BaseURL,
+		APIKey:     resolvedAPIKey,
+		Timeout:    f.Timeout,
+		WebhookURL: f.WebhookURL,
 	})
 }

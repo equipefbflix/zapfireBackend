@@ -105,3 +105,24 @@ func TestEvolutionWebhookRouteAcceptsByEventsSubpath(t *testing.T) {
 		t.Fatalf("EventType = %q", store.createParams.EventType)
 	}
 }
+
+func TestEvolutionWebhookRouteAcceptsLegacyPath(t *testing.T) {
+	store := &fakeHTTPEvolutionEventStore{}
+	server := NewServer(ServerConfig{
+		EvolutionEvents: store,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/webhook/evolution", bytes.NewReader([]byte(`{"event":"CONNECTION_UPDATE","instance":"chip-sp-01","data":{"state":"open"}}`)))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+	if store.createParams.EventType != "CONNECTION_UPDATE" {
+		t.Fatalf("EventType = %q", store.createParams.EventType)
+	}
+	if store.createParams.InstanceName != "chip-sp-01" {
+		t.Fatalf("InstanceName = %q", store.createParams.InstanceName)
+	}
+}

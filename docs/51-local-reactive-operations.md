@@ -13,7 +13,7 @@ Este documento descreve o menor caminho para operar localmente:
 ## Pre-requisitos
 
 - RabbitMQ local ativo
-- duas instancias reais conectadas na Evolution
+- duas instancias reais conectadas na Evolution Go
 - `DATABASE_URL`
 - `SERVER_URL`
 - `AUTHENTICATION_API_KEY`
@@ -22,11 +22,11 @@ Este documento descreve o menor caminho para operar localmente:
 
 ```bash
 cd /Volumes/SSDExterno/aquecedor-evolution/backend
-export DATABASE_URL='postgresql://postgres:***@db.rxdophybnwoocsdyxyjm.supabase.co:5432/postgres'
-export SERVER_URL='https://evo.askgeni.us'
+export DATABASE_URL='postgresql://postgres:***@db.cqmxcsmpdshuncupcwaw.supabase.co:5432/postgres'
+export SERVER_URL='https://go.zaapfire.com.br'
 export AUTHENTICATION_API_KEY='***'
 export API_AUTH_ENABLED='true'
-export SUPABASE_URL='https://rxdophybnwoocsdyxyjm.supabase.co'
+export SUPABASE_URL='https://cqmxcsmpdshuncupcwaw.supabase.co'
 ./scripts/run-api.sh
 ```
 
@@ -45,28 +45,37 @@ Copiar a URL publica e usar:
 
 `https://<subdominio>.ngrok-free.app/api/v1/webhooks/evolution`
 
-## 3. Reapontar o webhook das instancias
+## 3. Garantir as fixtures reativas de QA
 
 ```bash
-NGROK_URL='https://<subdominio>.ngrok-free.app/api/v1/webhooks/evolution'
-
-for inst in connect_a_20260505 connect_b_20260505; do
-  curl -X POST "https://evo.askgeni.us/webhook/set/$inst" \
-    -H 'Content-Type: application/json' \
-    -H "apikey: ${AUTHENTICATION_API_KEY}" \
-    --data "{
-      \"webhook\": {
-        \"enabled\": true,
-        \"url\": \"${NGROK_URL}\",
-        \"events\": [\"MESSAGES_UPSERT\", \"MESSAGES_UPDATE\", \"CONNECTION_UPDATE\"],
-        \"webhook_by_events\": true,
-        \"webhook_base64\": false
-      }
-    }"
-done
+export REACTIVE_FIXTURE_A_NAME='reactive_a_go_20260515'
+export REACTIVE_FIXTURE_B_NAME='reactive_b_go_20260515'
+export REACTIVE_FIXTURE_A_PHONE='5519989411105'
+export REACTIVE_FIXTURE_B_PHONE='5519995081355'
 ```
 
-## 4. Subir worker e scheduler
+Essas sao as fixtures QA atuais usadas pelo E2E real do loop reativo.
+
+Elas precisam existir:
+
+- na `evolution-go`
+- em `public.phone_numbers`
+- em `public.instances`
+
+## 4. Parear as duas fixtures
+
+Use o fluxo de pareamento ja existente no frontend ou a rota de `connect` do backend para obter o QR/pairing code das duas instancias:
+
+- `reactive_a_go_20260515`
+- `reactive_b_go_20260515`
+
+O E2E real do loop reativo exige que ambas estejam:
+
+- `state = open`
+- `loggedIn = true`
+- `jid != ''`
+
+## 5. Subir worker e scheduler
 
 ```bash
 export RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/'
@@ -80,7 +89,7 @@ export RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/'
 ./scripts/run-scheduler.sh
 ```
 
-## 5. Semear scripts reativos
+## 6. Semear scripts reativos
 
 ```bash
 ./scripts/seed-reactive-scripts.sh
@@ -99,13 +108,13 @@ export API_BEARER_TOKEN='<supabase_access_token>'
 ./scripts/seed-reactive-scripts.sh
 ```
 
-## 6. Disparar uma mensagem inbound de prova
+## 7. Disparar uma mensagem inbound de prova
 
 ```bash
-./scripts/send-inbound-probe.sh connect_b_20260505 5519989411105
+./scripts/send-inbound-probe.sh reactive_b_go_20260515 5519989411105
 ```
 
-## 7. O que deve acontecer
+## 8. O que deve acontecer
 
 1. Evolution envia `MESSAGES_UPSERT`
 2. API responde `202`
@@ -115,7 +124,7 @@ export API_BEARER_TOKEN='<supabase_access_token>'
 6. runner executa os steps do script reativo
 7. `execution_logs` e `warming_jobs` refletem a execucao
 
-## 8. Consultas uteis
+## 9. Consultas uteis
 
 Job reativo mais recente:
 
@@ -136,8 +145,51 @@ where warming_job_id = '<job-id>'
 order by created_at asc;
 ```
 
-## 9. Observacoes
+## 10. Observacoes
 
 - o planner calcula `scheduled_at` automaticamente; para depuracao rapida, voce pode adiantar o job para `now()`
 - o loop atual responde apenas a `MESSAGES_UPSERT`
 - o cooldown de inbound atual vem de `WARMING_INBOUND_TRIGGER_COOLDOWN_SECONDS`
+
+## 11. Validacao minima de runtime local
+
+Antes de abrir ngrok e testar o loop inteiro, valide a malha local:
+
+```bash
+ENABLE_REAL_TESTS=true \
+RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/' \
+go test -tags=integration ./internal/workerapp -run TestRabbitMQLocalRealFlow -v
+```
+
+Em 2026-05-13, esse teste passou com:
+
+- RabbitMQ local real em `127.0.0.1:5672`
+- banco real do projeto `rxdophybnwoocsdyxyjm`
+- `execution_logs` persistidos
+- cleanup completo ao final
+
+## 12. E2E real do webhook reativo
+
+Existe tambem um teste real cobrindo:
+
+`webhook -> evolutionsync -> conversationloop -> warming_job -> queue -> worker -> runner -> execution_logs`
+
+Execucao:
+
+```bash
+ENABLE_REAL_TESTS=true \
+RABBITMQ_URL='amqp://guest:guest@127.0.0.1:5672/' \
+go test -tags=integration ./internal/httpserver -run TestReactiveLoopRealE2E -v
+```
+
+Esse teste:
+
+- usa a rota real `POST /api/v1/webhooks/evolution` via `httptest`
+- persiste `evolution_events` no banco real
+- propaga `testRunId` do payload do webhook para o `warming_job`
+- exige que as fixtures `reactive_a_go_20260515` e `reactive_b_go_20260515` existam, estejam persistidas no banco, estejam `open` e com sessao real ativa na `evolution-go`
+- publica em topologia RabbitMQ isolada por `testRunId`
+- consome no worker real
+- executa o runner real
+- verifica `execution_logs` de sucesso
+- limpa `execution_logs`, `warming_jobs` e `evolution_events` ao final

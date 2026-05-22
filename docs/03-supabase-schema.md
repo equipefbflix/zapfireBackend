@@ -1,12 +1,12 @@
 # Supabase e schema
 
-Projeto alvo atual: `rxdophybnwoocsdyxyjm`.
+Projeto alvo atual: `cqmxcsmpdshuncupcwaw`.
 
 ## Estado de acesso
 
-Verificacao em 2026-04-30:
+Verificacao consolidada ate 2026-05-13:
 
-- `get_project_url` retornou `https://rxdophybnwoocsdyxyjm.supabase.co`.
+- `get_project_url` retornou `https://cqmxcsmpdshuncupcwaw.supabase.co`.
 - `list_tables(schemas=["public"], verbose=false)` funcionou.
 - `list_migrations` funcionou.
 - `execute_sql` funcionou para insert/delete de validacao.
@@ -48,6 +48,7 @@ create extension if not exists pg_cron;
 create type evolution_health_status as enum ('healthy', 'degraded', 'down', 'disabled');
 create type instance_status as enum ('created', 'connecting', 'open', 'close', 'failed', 'paused');
 create type phone_status as enum ('new', 'warming', 'warm', 'paused', 'blocked', 'lost');
+create type phone_type as enum ('heater', 'target');
 create type execution_status as enum ('pending', 'running', 'success', 'failed', 'cancelled', 'skipped');
 create type warming_action_type as enum (
   'send_text',
@@ -99,6 +100,7 @@ create table public.phone_numbers (
   id uuid primary key default gen_random_uuid(),
   phone_e164 text not null unique,
   label text,
+  type phone_type not null default 'target',
   status phone_status not null default 'new',
   warming_score numeric(5,2) not null default 0,
   daily_message_count integer not null default 0,

@@ -117,7 +117,12 @@ RABBITMQ_URL='amqp://user:password@host:5672/' \
 go test -tags=integration ./internal/queue -run TestRabbitMQPublishConsumeReal -v
 ```
 
-Status atual: o teste real esta implementado, mas a conexao com o host de teste informado falhou por timeout TCP na porta `5672`.
+Status atual:
+
+- o teste real esta implementado;
+- validacao local em broker Docker passou;
+- validacao contra `rabbitmq.zaapfire.com.br` em 2026-05-14 falhou com `connect: connection refused` nas portas `5672` e `5671`;
+- isso indica que o backend ja suporta broker externo por `RABBITMQ_URL`, mas a exposicao AMQP do ambiente externo ainda nao esta acessivel deste host.
 
 ## Validacao local em 2026-05-04
 

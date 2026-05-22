@@ -2,11 +2,30 @@ package httpserver
 
 import (
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"aquecedor-evolution/backend/internal/repository"
 )
+
+type testProxyRequest struct {
+	Host     string  `json:"host"`
+	Port     int     `json:"port"`
+	Protocol string  `json:"protocol"`
+	Username *string `json:"username,omitempty"`
+	Password *string `json:"password,omitempty"`
+}
+
+type testProxyResponse struct {
+	Success bool   `json:"success"`
+	Latency string `json:"latency,omitempty"`
+	IP      string `json:"ip,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
 
 type createProxyRequest struct {
 	Name               string         `json:"name"`
@@ -113,6 +132,77 @@ func (s *Server) handleListProxies(w http.ResponseWriter, r *http.Request) {
 		response.Items = append(response.Items, newProxyResponse(item))
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleTestProxy(w http.ResponseWriter, r *http.Request) {
+	var req testProxyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, testProxyResponse{Success: false, Error: "invalid json body"})
+		return
+	}
+	if req.Host == "" {
+		writeJSON(w, http.StatusBadRequest, testProxyResponse{Success: false, Error: "host is required"})
+		return
+	}
+	if req.Port <= 0 {
+		writeJSON(w, http.StatusBadRequest, testProxyResponse{Success: false, Error: "port is required"})
+		return
+	}
+	if req.Protocol == "" {
+		req.Protocol = "socks5"
+	}
+
+	proxyURL := fmt.Sprintf("%s://%s", req.Protocol, req.Host)
+	if req.Port > 0 {
+		proxyURL = fmt.Sprintf("%s://%s:%d", req.Protocol, req.Host, req.Port)
+	}
+	if req.Username != nil && *req.Username != "" && req.Password != nil && *req.Password != "" {
+		proxyURL = fmt.Sprintf("%s://%s:%s@%s:%d", req.Protocol, url.QueryEscape(*req.Username), url.QueryEscape(*req.Password), req.Host, req.Port)
+	}
+
+	proxyParsed, err := url.Parse(proxyURL)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, testProxyResponse{Success: false, Error: "invalid proxy url: " + err.Error()})
+		return
+	}
+
+	start := time.Now()
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyParsed),
+		},
+	}
+
+	resp, err := client.Get("https://api.ipify.org?format=json")
+	latency := time.Since(start)
+	if err != nil {
+		slog.Warn("proxy test failed", "host", req.Host, "port", req.Port, "protocol", req.Protocol, "error", err)
+		writeJSON(w, http.StatusOK, testProxyResponse{
+			Success: false,
+			Latency: latency.Round(time.Millisecond).String(),
+			Error:   err.Error(),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		IP string `json:"ip"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		writeJSON(w, http.StatusOK, testProxyResponse{
+			Success: true,
+			Latency: latency.Round(time.Millisecond).String(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, testProxyResponse{
+		Success: true,
+		Latency: latency.Round(time.Millisecond).String(),
+		IP:      result.IP,
+	})
 }
 
 func newProxyResponse(proxy repository.Proxy) proxyResponse {

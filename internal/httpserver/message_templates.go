@@ -35,6 +35,17 @@ type listMessageTemplatesResponse struct {
 	Items []messageTemplateResponse `json:"items"`
 }
 
+type updateMessageTemplateRequest struct {
+	Category        *string        `json:"category"`
+	Title           *string        `json:"title"`
+	Body            *string        `json:"body"`
+	Weight          *int           `json:"weight"`
+	Enabled         *bool          `json:"enabled"`
+	MinWarmingScore *float64       `json:"minWarmingScore"`
+	MaxWarmingScore *float64       `json:"maxWarmingScore"`
+	Metadata        map[string]any `json:"metadata"`
+}
+
 func (s *Server) handleCreateMessageTemplate(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.MessageTemplates == nil {
 		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "message template store is not configured"})
@@ -110,6 +121,38 @@ func (s *Server) handleListMessageTemplates(w http.ResponseWriter, r *http.Reque
 		response.Items = append(response.Items, newMessageTemplateResponse(item))
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handleUpdateMessageTemplate(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.MessageTemplates == nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "message template store is not configured"})
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "id is required"})
+		return
+	}
+	var request updateMessageTemplateRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid json body"})
+		return
+	}
+	updated, err := s.cfg.MessageTemplates.Update(r.Context(), id, repository.UpdateMessageTemplateParams{
+		Category:        request.Category,
+		Title:           request.Title,
+		Body:            request.Body,
+		Weight:          request.Weight,
+		Enabled:         request.Enabled,
+		MinWarmingScore: request.MinWarmingScore,
+		MaxWarmingScore: request.MaxWarmingScore,
+		Metadata:        request.Metadata,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to update message template"})
+		return
+	}
+	writeJSON(w, http.StatusOK, newMessageTemplateResponse(updated))
 }
 
 func newMessageTemplateResponse(template repository.MessageTemplate) messageTemplateResponse {

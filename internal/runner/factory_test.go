@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"aquecedor-evolution/backend/internal/evolution"
@@ -22,6 +23,9 @@ func (s *fakeEvolutionServerStore) GetByID(ctx context.Context, id string) (repo
 type fakeSecretResolver struct{}
 
 func (fakeSecretResolver) Resolve(secretName string) string {
+	if value, ok := strings.CutPrefix(secretName, "literal:"); ok {
+		return value
+	}
 	return "resolved-" + secretName
 }
 
@@ -77,8 +81,9 @@ func TestInstanceExecutorFactoryForInstance(t *testing.T) {
 	factory := NewInstanceExecutorFactory(serverStore, fakeSecretResolver{}, clientFactory)
 
 	stepExecutor, err := factory.ForInstance(context.Background(), repository.Instance{
-		ID:                "instance-id",
-		EvolutionServerID: "server-id",
+		ID:                       "instance-id",
+		EvolutionServerID:        "server-id",
+		InstanceAPIKeySecretName: stringPtr("literal:instance-token"),
 	})
 	if err != nil {
 		t.Fatalf("ForInstance() error = %v", err)
@@ -86,10 +91,14 @@ func TestInstanceExecutorFactoryForInstance(t *testing.T) {
 	if serverStore.id != "server-id" {
 		t.Fatalf("server id = %q", serverStore.id)
 	}
-	if clientFactory.apiKey != "resolved-EVOLUTION_EVO_01_API_KEY" {
+	if clientFactory.apiKey != "instance-token" {
 		t.Fatalf("api key = %q", clientFactory.apiKey)
 	}
 	if stepExecutor == nil {
 		t.Fatal("stepExecutor = nil")
 	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }

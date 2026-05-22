@@ -14,6 +14,7 @@ import (
 	"aquecedor-evolution/backend/internal/conversationloop"
 	"aquecedor-evolution/backend/internal/database"
 	"aquecedor-evolution/backend/internal/evolutionsync"
+	"aquecedor-evolution/backend/internal/heater"
 	"aquecedor-evolution/backend/internal/httpserver"
 	"aquecedor-evolution/backend/internal/instance"
 	"aquecedor-evolution/backend/internal/observability"
@@ -75,6 +76,7 @@ func run() error {
 		messageTemplates := repository.NewMessageTemplateRepository(executor)
 		conversationScripts := repository.NewConversationScriptRepository(executor)
 		conversationSteps := repository.NewConversationStepRepository(executor)
+		deviceModels := repository.NewDeviceModelRepository(executor)
 		warmingJobs := repository.NewWarmingJobRepository(executor)
 		executionLogs := repository.NewExecutionLogRepository(executor)
 		evolutionEvents := repository.NewEvolutionEventRepository(executor)
@@ -87,9 +89,11 @@ func run() error {
 			EvolutionFactory: instance.EvolutionClientFactory{
 				SecretResolver: instance.EnvSecretResolver{},
 				Timeout:        appConfig.EvolutionTimeout,
+				WebhookURL:     strings.TrimRight(appConfig.PublicURL, "/") + "/api/v1/webhooks/evolution",
 			},
 			SecretResolver: instance.EnvSecretResolver{},
 			WebhookURL:     strings.TrimRight(appConfig.PublicURL, "/") + "/api/v1/webhooks/evolution",
+			PhoneNumbers:   phoneNumbers,
 		})
 		plannerConfig := config.LoadPlannerConfig()
 		instanceExecutors := runner.NewInstanceExecutorFactory(
@@ -102,6 +106,11 @@ func run() error {
 			plannerConfig.MaxRunningJobsPerPair,
 			plannerConfig.MaxRunningJobsPerEvolutionServer,
 		)
+		dailyLimitGate := runner.NewDailyLimitGate(
+			phoneNumbers,
+			plannerConfig.MaxDailyMessagesPerNumber,
+			plannerConfig.MaxPairDailyMessages,
+		)
 		serverConfig.WarmingJobRunner = runner.NewWarmingJobRunner(
 			warmingJobs,
 			conversationSteps,
@@ -109,8 +118,13 @@ func run() error {
 			instanceExecutors,
 			executionLogs,
 			concurrencyGate,
+			dailyLimitGate,
+			phoneNumbers,
 		)
 		serverConfig.PhoneNumbers = phoneNumbers
+		serverConfig.InstanceLookupByName = instances
+		serverConfig.InstanceOperationalSummary = httpserver.NewInstanceOperationalSummaryStore(instances, phoneNumbers, plannerConfig.MaxDailyMessagesPerNumber)
+		serverConfig.DeviceModels = deviceModels
 		serverConfig.Proxies = proxies
 		serverConfig.EvolutionStore = evolutionServersRepo
 		serverConfig.MessageTemplates = messageTemplates
@@ -118,8 +132,10 @@ func run() error {
 		serverConfig.WarmingJobs = warmingJobs
 		serverConfig.ExecutionLogs = executionLogs
 		serverConfig.EvolutionEvents = evolutionEvents
+		serverConfig.DailyLimitPerNumber = plannerConfig.MaxDailyMessagesPerNumber
 		scoreService := warmingscore.NewService(config.LoadWarmingConfig(), executionLogs, phoneNumbers)
 		jobPlanner := planner.NewService(plannerConfig, conversationScripts, warmingJobs, nil)
+		serverConfig.HeaterActivator = heater.NewService(plannerConfig, phoneNumbers, jobPlanner, warmingJobs)
 		inboundLoop := conversationloop.NewService(plannerConfig, instances, phoneNumbers, jobPlanner, warmingJobs, warmingJobs, nil)
 		syncService := evolutionsync.NewService(instances, executionLogs, evolutionEvents, scoreService, inboundLoop)
 		serverConfig.EvolutionSync = syncService
@@ -135,6 +151,20 @@ func run() error {
 				BaseURL: fbflixBaseURL,
 				Token:   fbflixToken,
 				Timeout: appConfig.EvolutionTimeout,
+			})
+			serverConfig.InstanceCreator = instance.NewService(instance.ServiceConfig{
+				EvolutionServers: evolutionServersRepo,
+				Proxies:          proxies,
+				Instances:        instances,
+				EvolutionFactory: instance.EvolutionClientFactory{
+					SecretResolver: instance.EnvSecretResolver{},
+					Timeout:        appConfig.EvolutionTimeout,
+					WebhookURL:     strings.TrimRight(appConfig.PublicURL, "/") + "/api/v1/webhooks/evolution",
+				},
+				SecretResolver:      instance.EnvSecretResolver{},
+				WebhookURL:          strings.TrimRight(appConfig.PublicURL, "/") + "/api/v1/webhooks/evolution",
+				PhoneNumbers:        phoneNumbers,
+				FBFlixProxyProvider: instance.NewFBFlixProvider(fbflixClient),
 			})
 			serverConfig.FBFlixSync = fbflix.NewSyncService(fbflixClient, proxies)
 		}

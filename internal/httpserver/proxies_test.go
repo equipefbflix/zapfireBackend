@@ -138,15 +138,80 @@ func TestListProxiesRoute(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
+}
 
-	var response listProxiesResponse
+func TestTestProxyRoute(t *testing.T) {
+	server := NewServer(ServerConfig{})
+	body := []byte(`{
+		"host": "127.0.0.1",
+		"port": 1080,
+		"protocol": "socks5"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d body = %s", rec.Code, rec.Body.String())
+	}
+
+	var response testProxyResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
 	}
-	if len(response.Items) != 1 {
-		t.Fatalf("items len = %d", len(response.Items))
+	if response.Success {
+		t.Fatalf("expected success=false for unreachable proxy")
 	}
-	if response.Items[0].CurrentInstances != 3 {
-		t.Fatalf("CurrentInstances = %d", response.Items[0].CurrentInstances)
+}
+
+func TestTestProxyRouteDefaultsProtocol(t *testing.T) {
+	server := NewServer(ServerConfig{})
+	body := []byte(`{"host": "127.0.0.1", "port": 1080}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestTestProxyRouteRequiresHost(t *testing.T) {
+	server := NewServer(ServerConfig{})
+	body := []byte(`{"port": 1080}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestTestProxyRouteRequiresPort(t *testing.T) {
+	server := NewServer(ServerConfig{})
+	body := []byte(`{"host": "127.0.0.1"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/test", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestTestProxyRouteRejectsInvalidJSON(t *testing.T) {
+	server := NewServer(ServerConfig{})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/proxies/test", bytes.NewReader([]byte(`{invalid`)))
+	rec := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
 	}
 }

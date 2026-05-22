@@ -12,8 +12,10 @@ func TestPhoneNumberRepositoryCreate(t *testing.T) {
 			"phone-id",
 			"5511999999999",
 			"chip teste",
+			"target",
 			"new",
 			0.0,
+			"",
 			[]byte(`{"testRunId":"test-run"}`),
 		}},
 	}
@@ -64,7 +66,7 @@ func TestPhoneNumberRepositoryDeleteByTestRunID(t *testing.T) {
 func TestPhoneNumberRepositoryList(t *testing.T) {
 	db := &fakeExecutor{
 		rows: fakeRows{values: [][]any{
-			{"phone-id", "5511999999999", "chip", "new", 0.0, []byte(`{}`)},
+			{"phone-id", "5511999999999", "chip", "target", "new", 0.0, "", []byte(`{}`)},
 		}},
 	}
 	repo := NewPhoneNumberRepository(db)
@@ -99,16 +101,18 @@ func TestPhoneNumberRepositoryUpdate(t *testing.T) {
 			"phone-id",
 			"5511999999999",
 			"updated label",
+			"target",
 			"active",
 			10.5,
+			"",
 			[]byte(`{"updated":true}`),
 		}},
 	}
 	repo := NewPhoneNumberRepository(db)
 
 	phone, err := repo.Update(context.Background(), "phone-id", UpdatePhoneNumberParams{
-		Label:  stringPointer("updated label"),
-		Status: stringPointer("active"),
+		Label:  phoneStringPointer("updated label"),
+		Status: phoneStringPointer("active"),
 		Metadata: map[string]any{
 			"updated": true,
 		},
@@ -140,6 +144,6 @@ func TestPhoneNumberRepositoryDelete(t *testing.T) {
 	}
 }
 
-func stringPointer(s string) *string {
+func phoneStringPointer(s string) *string {
 	return &s
 }

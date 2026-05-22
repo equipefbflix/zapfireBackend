@@ -28,6 +28,17 @@ type CreateMessageTemplateParams struct {
 	Metadata        map[string]any
 }
 
+type UpdateMessageTemplateParams struct {
+	Category        *string
+	Title           *string
+	Body            *string
+	Weight          *int
+	Enabled         *bool
+	MinWarmingScore *float64
+	MaxWarmingScore *float64
+	Metadata        map[string]any
+}
+
 type MessageTemplateRepository struct {
 	db Executor
 }
@@ -78,6 +89,34 @@ order by category asc, title asc
 		return nil, fmt.Errorf("iterate message templates: %w", err)
 	}
 	return templates, nil
+}
+
+func (r MessageTemplateRepository) Update(ctx context.Context, id string, params UpdateMessageTemplateParams) (MessageTemplate, error) {
+	metadata, err := encodeMetadata(params.Metadata)
+	if err != nil {
+		return MessageTemplate{}, err
+	}
+
+	row := r.db.QueryRow(ctx, `
+update public.message_templates
+set category = coalesce($2, category),
+    title = coalesce($3, title),
+    body = coalesce($4, body),
+    weight = coalesce($5, weight),
+    enabled = coalesce($6, enabled),
+    min_warming_score = coalesce($7, min_warming_score),
+    max_warming_score = coalesce($8, max_warming_score),
+    metadata = case when $9::jsonb = '{}'::jsonb then metadata else $9::jsonb end,
+    updated_at = now()
+where id = $1::uuid
+returning id::text, category, title, body, weight, enabled, min_warming_score::float8, max_warming_score::float8, metadata::text::bytea
+`, id, params.Category, params.Title, params.Body, params.Weight, params.Enabled, params.MinWarmingScore, params.MaxWarmingScore, metadata)
+
+	template, err := scanMessageTemplate(row)
+	if err != nil {
+		return MessageTemplate{}, fmt.Errorf("update message template: %w", err)
+	}
+	return template, nil
 }
 
 func (r MessageTemplateRepository) DeleteByTestRunID(ctx context.Context, testRunID string) (int64, error) {

@@ -63,6 +63,16 @@ func (s *Server) handleEvolutionWebhook(w http.ResponseWriter, r *http.Request) 
 			writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "failed to sync evolution event"})
 			return
 		}
+		if s.cfg.InstanceLookupByName != nil && instanceName != "" {
+			if item, err := s.cfg.InstanceLookupByName.GetByInstanceName(r.Context(), instanceName); err == nil {
+				s.events.Publish(instanceEventMessage{
+					InstanceID:       item.ID,
+					InstanceName:     item.InstanceName,
+					Status:           item.Status,
+					ConnectionStatus: item.Status,
+				})
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusAccepted, evolutionWebhookResponse{
@@ -85,13 +95,14 @@ func stringField(payload map[string]any, key string) string {
 }
 
 func webhookEventTypeFromPath(path string) string {
-	const prefix = "/api/v1/webhooks/evolution/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
+	for _, prefix := range []string{"/api/v1/webhooks/evolution/", "/api/webhook/evolution/"} {
+		if strings.HasPrefix(path, prefix) {
+			suffix := strings.TrimPrefix(path, prefix)
+			suffix = strings.Trim(suffix, "/")
+			return suffix
+		}
 	}
-	suffix := strings.TrimPrefix(path, prefix)
-	suffix = strings.Trim(suffix, "/")
-	return suffix
+	return ""
 }
 
 func normalizeEvolutionEventType(value string) string {

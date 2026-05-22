@@ -122,6 +122,10 @@ func (s Service) HandleInbound(ctx context.Context, event repository.EvolutionEv
 		stringField(event.Payload, "data", "messageId"),
 	)
 	messageType := stringField(event.Payload, "data", "messageType")
+	testRunID := firstString(
+		stringField(event.Payload, "testRunId"),
+		stringField(event.Payload, "test_run_id"),
+	)
 	created, err := s.jobs.Create(ctx, repository.CreateWarmingJobParams{
 		ScriptID:    &plan.Script.ID,
 		PhoneAID:    localPhone.ID,
@@ -136,6 +140,7 @@ func (s Service) HandleInbound(ctx context.Context, event repository.EvolutionEv
 			"triggerInstanceName": event.InstanceName,
 			"triggerRemoteJid":    remoteJID,
 			"triggerMessageType":  messageType,
+			"testRunId":           testRunID,
 		},
 	})
 	if err != nil {

@@ -2,7 +2,7 @@
 
 Backend em Go para orquestrar instancias Evolution API, conversas de aquecimento entre numeros WhatsApp, execucoes agendadas, regras de score e redundancia entre multiplas Evolution APIs.
 
-Status atual: documentacao tecnica inicial com fundacoes RabbitMQ, HTTP/Evolution, Supabase e repositories base implementadas. O schema do aquecedor foi aplicado no projeto Supabase correto `rxdophybnwoocsdyxyjm`.
+Status atual: backend operacional com HTTP, Supabase, Evolution, RabbitMQ, scheduler e worker implementados. O projeto alvo atual do Supabase e `cqmxcsmpdshuncupcwaw`, a malha local `scheduler -> RabbitMQ -> worker -> runner -> execution_logs` foi validada, e a superficie operacional da UI agora cobre instancias, templates e scripts.
 
 ## Documentacao
 
