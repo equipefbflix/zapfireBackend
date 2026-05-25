@@ -465,7 +465,7 @@ func (s Service) SyncState(ctx context.Context, id string) (repository.Instance,
 	if err != nil {
 		return repository.Instance{}, fmt.Errorf("get evolution server: %w", err)
 	}
-	creator := s.evolutionFactory.NewWithAPIKey(server, s.instanceAPIKey(inst))
+	creator := s.evolutionFactory.New(server)
 	state, err := creator.ConnectionState(ctx, inst.InstanceName)
 	if err != nil {
 		return repository.Instance{}, fmt.Errorf("fetch evolution connection state: %w", err)
